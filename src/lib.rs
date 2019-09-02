@@ -18,10 +18,6 @@ fn hello_mul(_context: &Context, args: Vec<String>) -> RedisResult {
         return Err(RedisError::WrongArity);
     }
 
-    for (key, value) in std::env::vars() {
-        println!("{}: {}", key, value);
-    }
-
     let nums = args
         .into_iter()
         .skip(1)
@@ -35,9 +31,9 @@ fn hello_mul(_context: &Context, args: Vec<String>) -> RedisResult {
         let mut stream = Interval::new(dur);
 
         while let Some(_) = stream.next().await {
-            let url = format!("https://httpbin.org/get?product={}", product);
-            match surf::get(url).recv_string().await {
-                Ok(string) => println!("{}", string),
+            let url = format!("https://httpbin.org/status/{}", product);
+            match surf::get(url).await {
+                Ok(response) => println!("{:?}", response),
                 Err(error) => println!("{}", error),
             }
         }
