@@ -7,6 +7,13 @@ edition = "2018"
 [lib]
 crate-type = ["dylib"]
 
+[dependencies]
+futures-preview = "0.3.0-alpha.18"
+futures-timer = "0.3.0"
+runtime-native = "0.3.0-alpha.6"
+runtime-raw = "0.3.0-alpha.5"
+surf = "1.0.2"
+
 [dependencies.redismodule]
 git = "https://github.com/RedisLabsModules/redismodule-rs.git"
 tag = "v0.4.0"
