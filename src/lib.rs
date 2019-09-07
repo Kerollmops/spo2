@@ -1,55 +1,90 @@
 #[macro_use] extern crate redismodule;
 
-use std::time::Duration;
-use futures_timer::Interval;
-use futures::prelude::*;
-use redismodule::{parse_integer, Context, RedisError, RedisResult};
+mod command;
+mod health_checker;
 
-fn spawn_future<F>(fut: F)
-where F: Future<Output = ()> + Send + 'static
+use std::ffi::CStr;
+use std::time::Duration;
+
+use futures::executor::ThreadPool;
+use futures::compat::Compat01As03;
+use futures_locks::RwLock;
+use once_cell::sync::OnceCell;
+use redismodule::{Context, ThreadSafeContext, RedisError};
+use url::Url;
+
+use self::command::{spo2_insert, spo2_remove};
+use self::health_checker::health_checker;
+
+static THREAP_POOL: OnceCell<ThreadPool> = OnceCell::new();
+static SCAN_LOCK: OnceCell<RwLock<()>> = OnceCell::new();
+
+unsafe extern "C" fn event_subscription(
+    _ctx: *mut raw::RedisModuleCtx,
+    _type_: i32,
+    event: *const i8,
+    key: *mut raw::RedisModuleString,
+) -> i32
 {
-    use runtime_raw::Runtime;
-    use runtime_native::Native;
-    Native.spawn_boxed(fut.boxed()).expect("cannot spawn a future");
+    let event = CStr::from_ptr(event);
+    println!("{:?}", event);
+    if event.to_bytes() != b"set" { return 0 }
+
+    let pool = THREAP_POOL.get().expect("global thread pool uninitialized");
+
+    let key = match RedisString::from_ptr(key) {
+        Ok(key) => key,
+        Err(e) => { eprintln!("{:?}: {}", key, e); return 1 },
+    };
+
+    println!("{:?} {}", event, key);
+
+    let url = match Url::parse(key) {
+        Ok(url) => url,
+        Err(e) => { eprintln!("{:?}: {}", key, e); return 1 },
+    };
+
+    pool.spawn_ok(async { health_checker(url).await });
+
+    0
 }
 
-fn hello_mul(_context: &Context, args: Vec<String>) -> RedisResult {
-    if args.len() < 2 {
-        return Err(RedisError::WrongArity);
-    }
+fn init_function(_ctx: *mut raw::RedisModuleCtx) -> i32 {
+    let pool = THREAP_POOL.get_or_try_init(ThreadPool::new).unwrap();
+    let lock = SCAN_LOCK.get_or_init(|| RwLock::new(()));
 
-    let nums = args
-        .into_iter()
-        .skip(1)
-        .map(|s| parse_integer(&s))
-        .collect::<Result<Vec<i64>, RedisError>>()?;
+    pool.spawn_ok(async move {
+        // write lock the init mutex
+        let lock = Compat01As03::new(lock.write()).await;
+        let ctx = ThreadSafeContext::create();
 
-    let product = nums.iter().product();
+        // REDISMODULE_NOTIFY_SET does not work...
+        let types = raw::REDISMODULE_NOTIFY_ALL as i32;
+        let ret = ctx.subscribe_to_keyspace_events(types, Some(event_subscription));
+        assert_eq!(ret, 0);
 
-    spawn_future(async move {
-        let dur = Duration::from_secs(4);
-        let mut stream = Interval::new(dur);
+        // SCAN all keys
+        //   GETSET $key ''
 
-        while let Some(_) = stream.next().await {
-            let url = format!("https://httpbin.org/status/{}", product);
-            match surf::get(url).await {
-                Ok(response) => println!("{:?}", response),
-                Err(error) => println!("{}", error),
-            }
-        }
+        println!("doing key scan...");
+        std::thread::sleep(Duration::from_secs(2));
+        println!("key scan done.");
+
+        // unlock the init mutex this way
+        // insert/remove commands can continue
+        drop(lock);
     });
 
-    let mut response = Vec::from(nums);
-    response.push(product);
-
-    return Ok(response.into());
+    0
 }
 
 redis_module! {
-    name: "hello",
+    name: "SpO2",
     version: 1,
     data_types: [],
+    init: init_function,
     commands: [
-        ["hello.mul", hello_mul, ""],
+        ["spo2.insert", spo2_insert, "write"],
+        ["spo2.remove", spo2_remove, "write"],
     ],
 }

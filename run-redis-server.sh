@@ -1,5 +1,7 @@
 #!/bin/bash
 
+set -e
+
 if [ "$1" == "release" ]; then
     cargo build --release
     redis-server --loadmodule ./target/release/libspo2.dylib
