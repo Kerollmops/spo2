@@ -10,7 +10,7 @@ const TIMEOUT: Duration = Duration::from_secs(5);
 
 pub async fn health_checker(url: Url) {
     let ctx = ThreadSafeContext::create();
-    let dur = Duration::from_secs(3);
+    let dur = Duration::from_secs(10);
     let mut stream = Interval::new(dur);
 
     while let Some(_) = stream.next().await {
@@ -24,13 +24,11 @@ pub async fn health_checker(url: Url) {
                 if key.is_empty() { break }
                 let _ = key.write(&string);
 
-                println!("{} {}", url, status);
-
                 if !status.is_success() {
-                    eprintln!("wow!!! {}", status)
+                    eprintln!("{} {}", url, status);
                 }
             },
-            Err(error) => eprintln!("wow!!! {}", error),
+            Err(error) => eprintln!("{} {}", url, error),
         }
     }
 }

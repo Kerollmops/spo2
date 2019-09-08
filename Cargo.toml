@@ -17,5 +17,6 @@ url = "2.1.0"
 
 [dependencies.redismodule]
 git = "https://github.com/Kerollmops/redismodule-rs.git"
-branch = "thread-safe-context"
+branch = "redisvalue-from-reply"
+# path = "../redismodule-rs"
 features = ["experimental-api"]

@@ -4,13 +4,12 @@ mod command;
 mod health_checker;
 
 use std::ffi::CStr;
-use std::time::Duration;
 
 use futures::executor::ThreadPool;
 use futures::compat::Compat01As03;
 use futures_locks::RwLock;
 use once_cell::sync::OnceCell;
-use redismodule::{Context, ThreadSafeContext, RedisError};
+use redismodule::{Context, ThreadSafeContext, RedisError, RedisValue};
 use url::Url;
 
 use self::command::{spo2_insert, spo2_remove};
@@ -27,7 +26,6 @@ unsafe extern "C" fn event_subscription(
 ) -> i32
 {
     let event = CStr::from_ptr(event);
-    println!("{:?}", event);
     if event.to_bytes() != b"set" { return 0 }
 
     let pool = THREAP_POOL.get().expect("global thread pool uninitialized");
@@ -36,8 +34,6 @@ unsafe extern "C" fn event_subscription(
         Ok(key) => key,
         Err(e) => { eprintln!("{:?}: {}", key, e); return 1 },
     };
-
-    println!("{:?} {}", event, key);
 
     let url = match Url::parse(key) {
         Ok(url) => url,
@@ -63,12 +59,44 @@ fn init_function(_ctx: *mut raw::RedisModuleCtx) -> i32 {
         let ret = ctx.subscribe_to_keyspace_events(types, Some(event_subscription));
         assert_eq!(ret, 0);
 
-        // SCAN all keys
-        //   GETSET $key ''
+        let mut cursor: usize = 0;
+        loop {
+            let arg = cursor.to_string();
+            let result = ctx.call("scan", &[&arg]);
 
-        println!("doing key scan...");
-        std::thread::sleep(Duration::from_secs(2));
-        println!("key scan done.");
+            let mut args = match result {
+                Ok(RedisValue::Array(array)) => array.into_iter(),
+                Ok(_) => break,
+                Err(e) => { eprintln!("{:?}", e); break },
+            };
+
+            match args.next() {
+                Some(RedisValue::SimpleString(string)) => {
+                    cursor = string.parse().unwrap()
+                },
+                _ => panic!("wooops"),
+            }
+
+            let keys = match args.next() {
+                Some(RedisValue::Array(array)) => {
+                    array
+                        .into_iter()
+                        .filter_map(|e| match e {
+                            RedisValue::SimpleString(string) => Some(string),
+                            _ => None,
+                        })
+                },
+                _ => panic!("wooops"),
+            };
+
+            for key in keys {
+                if let Err(e) = ctx.call("GETSET", &[&key, ""]) {
+                    panic!("{:?}", e);
+                }
+            }
+
+            if cursor == 0 { break }
+        }
 
         // unlock the init mutex this way
         // insert/remove commands can continue
