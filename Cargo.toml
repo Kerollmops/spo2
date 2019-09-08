@@ -8,9 +8,10 @@ edition = "2018"
 crate-type = ["dylib"]
 
 [dependencies]
+arraydeque = "0.4.5"
 futures-locks = "0.4.0"
 futures-preview = "0.3.0-alpha.18"
-futures-timer = "0.3.0"
+futures-timer = "0.4.0"
 once_cell = "1.0.2"
 surf = "1.0.2"
 url = "2.1.0"
