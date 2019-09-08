@@ -8,15 +8,15 @@ use std::ffi::CStr;
 use futures::executor::ThreadPool;
 use futures::compat::Compat01As03;
 use futures_locks::RwLock;
-use once_cell::sync::OnceCell;
+use once_cell::sync::Lazy;
 use redismodule::{Context, ThreadSafeContext, RedisError, RedisValue};
 use url::Url;
 
 use self::command::{spo2_insert, spo2_remove};
 use self::health_checker::health_checker;
 
-static THREAP_POOL: OnceCell<ThreadPool> = OnceCell::new();
-static SCAN_LOCK: OnceCell<RwLock<()>> = OnceCell::new();
+static THREAP_POOL: Lazy<ThreadPool> = Lazy::new(|| ThreadPool::new().unwrap());
+static SCAN_LOCK: Lazy<RwLock<()>> = Lazy::new(|| RwLock::new(()));
 
 unsafe extern "C" fn event_subscription(
     _ctx: *mut raw::RedisModuleCtx,
@@ -28,8 +28,6 @@ unsafe extern "C" fn event_subscription(
     let event = CStr::from_ptr(event);
     if event.to_bytes() != b"set" { return 0 }
 
-    let pool = THREAP_POOL.get().expect("global thread pool uninitialized");
-
     let key = match RedisString::from_ptr(key) {
         Ok(key) => key,
         Err(e) => { eprintln!("{:?}: {}", key, e); return 1 },
@@ -40,18 +38,15 @@ unsafe extern "C" fn event_subscription(
         Err(e) => { eprintln!("{:?}: {}", key, e); return 1 },
     };
 
-    pool.spawn_ok(async { health_checker(url).await });
+    THREAP_POOL.spawn_ok(async { health_checker(url).await });
 
     0
 }
 
 fn init_function(_ctx: *mut raw::RedisModuleCtx) -> i32 {
-    let pool = THREAP_POOL.get_or_try_init(ThreadPool::new).unwrap();
-    let lock = SCAN_LOCK.get_or_init(|| RwLock::new(()));
-
-    pool.spawn_ok(async move {
+    THREAP_POOL.spawn_ok(async move {
         // write lock the init mutex
-        let lock = Compat01As03::new(lock.write()).await;
+        let lock = Compat01As03::new(SCAN_LOCK.write()).await;
         let ctx = ThreadSafeContext::create();
 
         // REDISMODULE_NOTIFY_SET does not work...

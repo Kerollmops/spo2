@@ -11,8 +11,7 @@ pub fn spo2_insert(ctx: &Context, args: Vec<String>) -> RedisResult {
 
     // TODO it would be better to use RedisModule_Un/BlockClient
     block_on(async move {
-        let lock = SCAN_LOCK.get().expect("scan lock uninitialized");
-        let lock = Compat01As03::new(lock.read()).await;
+        let lock = Compat01As03::new(SCAN_LOCK.read()).await;
         drop(lock);
     });
 
