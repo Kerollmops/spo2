@@ -32,6 +32,7 @@ pub async fn health_checker(url: Url) {
     let ctx = ThreadSafeContext::create();
     let mut last_status = ArrayDeque10::new();
     let mut stream = Interval::new(INSTANT_PING);
+    let mut in_bad_status = false;
 
     while let Some(_) = stream.next().await {
         let key = ctx.open_key_writable(url.as_str());
@@ -59,14 +60,24 @@ pub async fn health_checker(url: Url) {
         let bads = last_status.iter().filter(|s| !s.is_good()).count() as f32;
         let ratio = bads / len;
 
-        println!("{}/{} = {}", len, bads, ratio);
+        println!("{}/{} = {}", bads, len, ratio);
 
-        // last status is bad or half of the status are bad
-        if !status.is_good() || ratio >= 0.5 {
+        // in bad status or last status is bad or half of the status are bad
+        if in_bad_status || !status.is_good() || ratio >= 0.5 {
             eprintln!("{} speed up ping", url);
             stream = Interval::new(FAST_PING);
         } else {
             stream = Interval::new(NORMAL_PING);
+        }
+
+        if ratio >= 0.5 && !in_bad_status {
+            in_bad_status = true;
+            eprintln!("{} reported as bad", url);
+        }
+
+        if ratio == 0.0 && in_bad_status {
+            in_bad_status = false;
+            eprintln!("{} reported as good now", url);
         }
 
         drop(key);
