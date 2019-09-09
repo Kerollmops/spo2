@@ -7,8 +7,10 @@ use std::ffi::CStr;
 
 use futures::executor::ThreadPool;
 use futures::compat::Compat01As03;
+use futures::channel::mpsc::{self, Sender};
+use futures::stream::StreamExt;
 use futures_locks::RwLock;
-use once_cell::sync::Lazy;
+use once_cell::sync::{Lazy, OnceCell};
 use redismodule::{Context, ThreadSafeContext, RedisError, RedisValue};
 use url::Url;
 
@@ -17,6 +19,7 @@ use self::health_checker::health_checker;
 
 static THREAP_POOL: Lazy<ThreadPool> = Lazy::new(|| ThreadPool::new().unwrap());
 static SCAN_LOCK: Lazy<RwLock<()>> = Lazy::new(|| RwLock::new(()));
+static NOTIFIER_SENDER: OnceCell<Sender<(Url, ReportStatus)>> = OnceCell::new();
 
 unsafe extern "C" fn event_subscription(
     _ctx: *mut raw::RedisModuleCtx,
@@ -38,12 +41,29 @@ unsafe extern "C" fn event_subscription(
         Err(e) => { eprintln!("{:?}: {}", key, e); return 1 },
     };
 
-    THREAP_POOL.spawn_ok(async { health_checker(url).await });
+    let sender = NOTIFIER_SENDER.get().unwrap().clone();
+    THREAP_POOL.spawn_ok(async move { health_checker(url, sender).await });
 
     0
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum ReportStatus {
+    Unhealthy,
+    Healthy,
+}
+
 fn init_function(_ctx: *mut raw::RedisModuleCtx) -> i32 {
+    let (sender, receiver) = mpsc::channel(100);
+    NOTIFIER_SENDER.set(sender).expect("notifier already set");
+
+    THREAP_POOL.spawn_ok(async move {
+        let mut receiver = receiver;
+        while let Some((url, status)) = receiver.next().await {
+            println!("{} reported {:?}", url, status);
+        }
+    });
+
     THREAP_POOL.spawn_ok(async move {
         // write lock the init mutex
         let lock = Compat01As03::new(SCAN_LOCK.write()).await;

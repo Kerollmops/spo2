@@ -1,10 +1,13 @@
 use std::time::Duration;
 
 use futures::stream::StreamExt;
+use futures::sink::SinkExt;
+use futures::channel::mpsc::Sender;
 use futures_timer::{Interval, TryFutureExt};
 
 use redismodule::ThreadSafeContext;
 use url::Url;
+use crate::ReportStatus;
 
 const TIMEOUT:      Duration = Duration::from_secs(5);
 const NORMAL_PING:  Duration = Duration::from_secs(3);
@@ -28,7 +31,7 @@ impl Status {
     }
 }
 
-pub async fn health_checker(url: Url) {
+pub async fn health_checker(url: Url, mut sender: Sender<(Url, ReportStatus)>) {
     let ctx = ThreadSafeContext::create();
     let mut last_status = ArrayDeque10::new();
     let mut stream = Interval::new(INSTANT_PING);
@@ -60,11 +63,10 @@ pub async fn health_checker(url: Url) {
         let bads = last_status.iter().filter(|s| !s.is_good()).count() as f32;
         let ratio = bads / len;
 
-        println!("{}/{} = {}", bads, len, ratio);
+        eprintln!("{}/{} = {}", bads, len, ratio);
 
         // in bad status or last status is bad or half of the status are bad
         if in_bad_status || !status.is_good() || ratio >= 0.5 {
-            eprintln!("{} speed up ping", url);
             stream = Interval::new(FAST_PING);
         } else {
             stream = Interval::new(NORMAL_PING);
@@ -72,12 +74,14 @@ pub async fn health_checker(url: Url) {
 
         if ratio >= 0.5 && !in_bad_status {
             in_bad_status = true;
-            eprintln!("{} reported as bad", url);
+            let report = (url.clone(), ReportStatus::Unhealthy);
+            let _ = sender.send(report).await;
         }
 
         if ratio == 0.0 && in_bad_status {
             in_bad_status = false;
-            eprintln!("{} reported as good now", url);
+            let report = (url.clone(), ReportStatus::Healthy);
+            let _ = sender.send(report).await;
         }
 
         drop(key);
