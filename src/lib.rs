@@ -4,6 +4,7 @@ mod command;
 mod health_checker;
 
 use std::ffi::CStr;
+use std::env;
 
 use futures::executor::ThreadPool;
 use futures::compat::Compat01As03;
@@ -20,6 +21,8 @@ use self::health_checker::health_checker;
 static THREAP_POOL: Lazy<ThreadPool> = Lazy::new(|| ThreadPool::new().unwrap());
 static SCAN_LOCK: Lazy<RwLock<()>> = Lazy::new(|| RwLock::new(()));
 static NOTIFIER_SENDER: OnceCell<Sender<(Url, ReportStatus)>> = OnceCell::new();
+
+const SLACK_HOOK_URL: &str = "SLACK_HOOK_URL";
 
 unsafe extern "C" fn event_subscription(
     _ctx: *mut raw::RedisModuleCtx,
@@ -58,9 +61,19 @@ fn init_function(_ctx: *mut raw::RedisModuleCtx) -> i32 {
     NOTIFIER_SENDER.set(sender).expect("notifier already set");
 
     THREAP_POOL.spawn_ok(async move {
+        let slack_hook_url = match env::var(SLACK_HOOK_URL) {
+            Ok(url) => url,
+            Err(e) => { eprintln!("SLACK_HOOK_URL: {}", e); return }
+        };
+
         let mut receiver = receiver;
         while let Some((url, status)) = receiver.next().await {
-            println!("{} reported {:?}", url, status);
+            let body = format!("{} reported {:?}", url, status);
+            let body = serde_json::json!({ "text": &body });
+            let request = surf::post(&slack_hook_url).body_json(&body).unwrap();
+            if let Err(e) = request.recv_string().await {
+                eprintln!("{}", e);
+            }
         }
     });
 
