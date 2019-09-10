@@ -34,6 +34,9 @@ pub async fn health_checker(url: Url, mut sender: Sender<(Url, ReportStatus)>) {
     let mut last_status = ArrayDeque10::new();
     let mut in_bad_status = false;
 
+    let message = format!("{},{:?}", url, ReportStatus::Healthy);
+    let _ = ctx.call("publish", &["spo2", &message]);
+
     loop {
         let key = ctx.open_key_writable(url.as_str());
 
@@ -72,16 +75,22 @@ pub async fn health_checker(url: Url, mut sender: Sender<(Url, ReportStatus)>) {
             in_bad_status = true;
             let report = (url.clone(), ReportStatus::Unhealthy);
             let _ = sender.send(report).await;
+
+            let message = format!("{},{:?}", url, ReportStatus::Unhealthy);
+            let _ = ctx.call("publish", &["spo2", &message]);
         }
 
         if ratio == 0.0 && in_bad_status {
             in_bad_status = false;
             let report = (url.clone(), ReportStatus::Healthy);
             let _ = sender.send(report).await;
+
+            let message = format!("{},{:?}", url, ReportStatus::Healthy);
+            let _ = ctx.call("publish", &["spo2", &message]);
         }
 
         let text_status = if in_bad_status { "bad" } else { "good" };
-        eprintln!("{}/{} = {} (in {} status)", bads, cap, ratio, text_status);
+        eprintln!("{} {}/{} = {} (in {} status)", url, bads, cap, ratio, text_status);
 
         // in bad status
         // or last status is bad
@@ -93,4 +102,7 @@ pub async fn health_checker(url: Url, mut sender: Sender<(Url, ReportStatus)>) {
             let _ = Delay::new(NORMAL_PING).await;
         }
     }
+
+    let message = format!("{},{}", url, "Removed");
+    let _ = ctx.call("publish", &["spo2", &message]);
 }
