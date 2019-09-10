@@ -89,13 +89,6 @@ pub async fn health_checker(url: Url, mut sender: Sender<(Url, ReportStatus)>) {
             let _ = ctx.call("publish", &["spo2", &message]);
         }
 
-        let text_status = if in_bad_status { "bad" } else { "good" };
-        eprintln!("{} {}/{} = {} (in {} status)", url, bads, cap, ratio, text_status);
-
-        // in bad status
-        // or last status is bad
-        // or half of the status are bad
-        // and this outage is "recent"
         if (in_bad_status || !status.is_good() || ratio >= 0.5) && ratio != 1.0 {
             let _ = Delay::new(FAST_PING).await;
         } else {
