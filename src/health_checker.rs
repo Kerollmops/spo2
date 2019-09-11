@@ -1,4 +1,4 @@
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use futures::sink::SinkExt;
 use futures::channel::mpsc::Sender;
@@ -7,9 +7,10 @@ use futures_timer::{Delay, TryFutureExt};
 use url::Url;
 use crate::ReportStatus;
 
-const TIMEOUT:      Duration = Duration::from_secs(5);
-const NORMAL_PING:  Duration = Duration::from_secs(3);
-const FAST_PING:    Duration = Duration::from_millis(800);
+const STILL_UNHEALTHY_TIMEOUT: Duration = Duration::from_secs(15 * 60); // 15 minutes
+const TIMEOUT:     Duration = Duration::from_secs(5);
+const NORMAL_PING: Duration = Duration::from_secs(3);
+const FAST_PING:   Duration = Duration::from_millis(800);
 
 type ArrayDeque10<T> = arraydeque::ArrayDeque<[T; 10], arraydeque::Wrapping>;
 
@@ -36,7 +37,7 @@ pub async fn health_checker(
 )
 {
     let mut last_status = ArrayDeque10::new();
-    let mut in_bad_status = false;
+    let mut in_bad_state_since = None;
 
     let message = format!("{},{:?}", url, ReportStatus::Healthy);
     let _ = event_sender.send(message);
@@ -60,8 +61,8 @@ pub async fn health_checker(
         let bads = last_status.iter().filter(|s| !s.is_good()).count() as f32;
         let ratio = bads / cap;
 
-        if ratio >= 0.5 && !in_bad_status {
-            in_bad_status = true;
+        if ratio >= 0.5 && in_bad_state_since.is_none() {
+            in_bad_state_since = Some(Instant::now());
 
             let report = (url.clone(), ReportStatus::Unhealthy);
             let _ = report_sender.send(report).await;
@@ -70,8 +71,8 @@ pub async fn health_checker(
             let _ = event_sender.send(message);
         }
 
-        if ratio == 0.0 && in_bad_status {
-            in_bad_status = false;
+        if ratio == 0.0 && in_bad_state_since.is_some() {
+            in_bad_state_since = None;
 
             let report = (url.clone(), ReportStatus::Healthy);
             let _ = report_sender.send(report).await;
@@ -80,10 +81,22 @@ pub async fn health_checker(
             let _ = event_sender.send(message);
         }
 
-        if (in_bad_status || !status.is_good() || ratio >= 0.5) && ratio != 1.0 {
+        if (in_bad_state_since.is_some() || !status.is_good() || ratio >= 0.5) && ratio != 1.0 {
             let _ = Delay::new(FAST_PING).await;
         } else {
             let _ = Delay::new(NORMAL_PING).await;
+        }
+
+        if let Some(since) = in_bad_state_since {
+            if since.elapsed() > STILL_UNHEALTHY_TIMEOUT {
+                let report = (url.clone(), ReportStatus::Unhealthy);
+                let _ = report_sender.send(report).await;
+
+                let message = format!("{},{:?}", url, ReportStatus::Unhealthy);
+                let _ = event_sender.send(message);
+
+                in_bad_state_since = Some(Instant::now());
+            }
         }
     }
 
