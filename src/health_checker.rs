@@ -4,7 +4,6 @@ use futures::sink::SinkExt;
 use futures::channel::mpsc::Sender;
 use futures_timer::{Delay, TryFutureExt};
 
-use redismodule::ThreadSafeContext;
 use url::Url;
 use crate::ReportStatus;
 
@@ -29,43 +28,32 @@ impl Status {
     }
 }
 
-pub async fn health_checker(url: Url, mut sender: Sender<(Url, ReportStatus)>) {
-    let ctx = ThreadSafeContext::create();
+pub async fn health_checker(
+    url: Url,
+    mut report_sender: Sender<(Url, ReportStatus)>,
+    database: sled::Db,
+)
+{
     let mut last_status = ArrayDeque10::new();
     let mut in_bad_status = false;
 
-    let message = format!("{},{:?}", url, ReportStatus::Healthy);
-    let _ = ctx.call("publish", &["spo2", &message]);
+    // let message = format!("{},{:?}", url, ReportStatus::Healthy);
+    // let _ = ctx.call("publish", &["spo2", &message]);
 
     loop {
-        let key = ctx.open_key_writable(url.as_str());
-
         let status = match surf::get(&url).timeout(TIMEOUT).await {
-            Ok(response) => {
-                let status = response.status();
-
-                let string = status.to_string();
-                if key.is_empty() { break }
-                let _ = key.write(&string);
-
-                if status.is_success() {
-                    Healthy
-                } else {
-                    Unhealthy
-                }
-            },
-            Err(e) => {
-                let string = e.to_string();
-                if key.is_empty() { break }
-                let _ = key.write(&string);
-
-                Unreacheable
-            },
+            Ok(ref resp) if resp.status().is_success() => Healthy,
+            Ok(resp) => Unhealthy,
+            Err(e) => Unreacheable,
         };
 
-        drop(key);
-
         last_status.push_front(status);
+
+        match database.get(url.as_str()) {
+            Ok(Some(_)) => (),
+            Ok(None) => break,
+            Err(e) => eprintln!("{}: {}", url, e),
+        }
 
         let cap = last_status.capacity() as f32;
         let bads = last_status.iter().filter(|s| !s.is_good()).count() as f32;
@@ -74,19 +62,19 @@ pub async fn health_checker(url: Url, mut sender: Sender<(Url, ReportStatus)>) {
         if ratio >= 0.5 && !in_bad_status {
             in_bad_status = true;
             let report = (url.clone(), ReportStatus::Unhealthy);
-            let _ = sender.send(report).await;
+            let _ = report_sender.send(report).await;
 
-            let message = format!("{},{:?}", url, ReportStatus::Unhealthy);
-            let _ = ctx.call("publish", &["spo2", &message]);
+            // let message = format!("{},{:?}", url, ReportStatus::Unhealthy);
+            // let _ = ctx.call("publish", &["spo2", &message]);
         }
 
         if ratio == 0.0 && in_bad_status {
             in_bad_status = false;
             let report = (url.clone(), ReportStatus::Healthy);
-            let _ = sender.send(report).await;
+            let _ = report_sender.send(report).await;
 
-            let message = format!("{},{:?}", url, ReportStatus::Healthy);
-            let _ = ctx.call("publish", &["spo2", &message]);
+            // let message = format!("{},{:?}", url, ReportStatus::Healthy);
+            // let _ = ctx.call("publish", &["spo2", &message]);
         }
 
         if (in_bad_status || !status.is_good() || ratio >= 0.5) && ratio != 1.0 {
@@ -96,6 +84,6 @@ pub async fn health_checker(url: Url, mut sender: Sender<(Url, ReportStatus)>) {
         }
     }
 
-    let message = format!("{},{}", url, "Removed");
-    let _ = ctx.call("publish", &["spo2", &message]);
+    // let message = format!("{},{}", url, "Removed");
+    // let _ = ctx.call("publish", &["spo2", &message]);
 }
