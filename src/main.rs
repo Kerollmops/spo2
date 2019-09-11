@@ -12,6 +12,8 @@ use url::Url;
 use self::health_checker::health_checker;
 use self::routes::{update_url, read_url, delete_url, get_all_urls};
 
+const HTTP_LISTEN_ADDR: &str = "HTTP_LISTEN_ADDR";
+const WS_LISTEN_ADDR: &str = "WS_LISTEN_ADDR";
 const SLACK_HOOK_URL: &str = "SLACK_HOOK_URL";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -32,11 +34,30 @@ fn main() -> Result<(), io::Error> {
     let (notifier_sender, receiver) = mpsc::channel(100);
     let database = sled::Db::open("spo2.db").unwrap();
 
+    let ws_listen_addr = match env::var(WS_LISTEN_ADDR) {
+        Ok(addr) => addr,
+        Err(e) => {
+            eprintln!("{}: {}", WS_LISTEN_ADDR, e);
+            String::from("127.0.0.1:8001")
+        },
+    };
+
+    let http_listen_addr = match env::var(HTTP_LISTEN_ADDR) {
+        Ok(addr) => addr,
+        Err(e) => {
+            eprintln!("{}: {}", HTTP_LISTEN_ADDR, e);
+            String::from("127.0.0.1:8000")
+        },
+    };
+
     // initialize the notifier sender
     thread_pool.spawn_ok(async move {
         let slack_hook_url = match env::var(SLACK_HOOK_URL) {
             Ok(url) => url,
-            Err(e) => { eprintln!("SLACK_HOOK_URL: {}", e); return }
+            Err(e) => {
+                eprintln!("{}: {}", SLACK_HOOK_URL, e);
+                return
+            }
         };
 
         let mut receiver = receiver;
@@ -56,8 +77,9 @@ fn main() -> Result<(), io::Error> {
     let event_sender = ws.broadcaster();
 
     // run the websocket listener
+    println!("Websocket server is listening on: ws://{}", ws_listen_addr);
     let _ = thread::spawn(|| {
-        ws.listen("127.0.0.1:8001").expect("websocket listen error")
+        ws.listen(ws_listen_addr).expect("websocket listen error")
     });
 
     // run health checking for every url saved
@@ -91,8 +113,6 @@ fn main() -> Result<(), io::Error> {
     app.at("/")
         .get(get_all_urls);
 
-    let listen_addr = env::args().nth(1).unwrap_or("127.0.0.1:8000".into());
-
     // start listening to clients now
-    app.run(listen_addr)
+    app.run(http_listen_addr)
 }
