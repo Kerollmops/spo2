@@ -46,8 +46,6 @@ pub async fn read_url(cx: Context<State>) -> Result<Json, WithStatus<String>> {
     let url = Url::parse(&url).map_err(into_bad_request)?;
 
     let database = &cx.state().database;
-    let event_sender = &cx.state().event_sender;
-
     match database.get(url.as_str()) {
         Ok(Some(value)) => Ok(Json(value.to_vec())),
         Ok(None) => Err(not_found()),
@@ -60,8 +58,6 @@ pub async fn delete_url(cx: Context<State>) -> Result<Json, WithStatus<String>> 
     let url = Url::parse(&url).map_err(into_bad_request)?;
 
     let database = &cx.state().database;
-    let event_sender = &cx.state().event_sender;
-
     match database.remove(url.as_str()) {
         Ok(Some(value)) => Ok(Json(value.to_vec())),
         Ok(None) => Err(not_found()),

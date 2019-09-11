@@ -82,14 +82,14 @@ fn main() -> Result<(), io::Error> {
     let state = State { thread_pool, notifier_sender, event_sender, database };
     let mut app = tide::App::with_state(state);
 
-    app
-        .at("/")
-            .get(get_all_urls)
-        .at("/:url")
-            .post(update_url)
-            .get(read_url)
-            .put(update_url)
-            .delete(delete_url);
+    app.at("/:url")
+        .post(update_url)
+        .get(read_url)
+        .put(update_url)
+        .delete(delete_url);
+
+    app.at("/")
+        .get(get_all_urls);
 
     let listen_addr = env::args().nth(1).unwrap_or("127.0.0.1:8000".into());
 
