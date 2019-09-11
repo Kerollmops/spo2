@@ -15,12 +15,10 @@ pub async fn update_url(mut cx: Context<State>) -> Result<Json, WithStatus<Strin
 
     let value = match body {
         None => serde_json::Value::Null,
-        Some(body) => {
-            let body = serde_json::from_slice(&body).map_err(into_bad_request)?;
-            serde_json::json!({ "data": body })
-        },
+        Some(body) => serde_json::from_slice(&body).map_err(into_bad_request)?,
     };
 
+    let value = serde_json::json!({ "data": value });
     let value = serde_json::to_vec(&value).map_err(into_internal_error)?;
 
     let pool = &cx.state().thread_pool;
