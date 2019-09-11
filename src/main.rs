@@ -2,13 +2,14 @@ mod health_checker;
 mod response;
 mod routes;
 
-use std::{env, io};
+use std::{env, io, str};
 
 use futures::channel::mpsc::{self, Sender};
 use futures::executor::ThreadPool;
 use futures::stream::StreamExt;
 use url::Url;
 
+use self::health_checker::health_checker;
 use self::routes::{update_url, read_url, delete_url};
 
 const SLACK_HOOK_URL: &str = "SLACK_HOOK_URL";
@@ -48,12 +49,25 @@ fn main() -> Result<(), io::Error> {
         }
     });
 
-    let state = State {
-        thread_pool: thread_pool.clone(),
-        notifier_sender: notifier_sender.clone(),
-        database: database.clone(),
-    };
+    // run health checking for every url saved
+    for result in database.iter() {
+        let key = match result {
+            Ok((key, _)) => key,
+            Err(e) => { eprintln!("{}", e); continue },
+        };
 
+        let string = str::from_utf8(&key).unwrap();
+        let url = Url::parse(string).unwrap();
+
+        let notifier_sender = notifier_sender.clone();
+        let database = database.clone();
+
+        thread_pool.spawn_ok(async {
+            health_checker(url, notifier_sender, database).await
+        });
+    }
+
+    let state = State { thread_pool, notifier_sender, database };
     let mut app = tide::App::with_state(state);
 
     app.at("/:url")
@@ -64,5 +78,6 @@ fn main() -> Result<(), io::Error> {
 
     let listen_addr = env::args().nth(1).unwrap_or("127.0.0.1:8000".into());
 
+    // start listening for clients now
     app.run(listen_addr)
 }
