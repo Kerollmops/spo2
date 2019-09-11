@@ -31,14 +31,15 @@ impl Status {
 pub async fn health_checker(
     url: Url,
     mut report_sender: Sender<(Url, ReportStatus)>,
+    event_sender: ws::Sender,
     database: sled::Db,
 )
 {
     let mut last_status = ArrayDeque10::new();
     let mut in_bad_status = false;
 
-    // let message = format!("{},{:?}", url, ReportStatus::Healthy);
-    // let _ = ctx.call("publish", &["spo2", &message]);
+    let message = format!("{},{:?}", url, ReportStatus::Healthy);
+    let _ = event_sender.send(message);
 
     loop {
         let status = match surf::get(&url).timeout(TIMEOUT).await {
@@ -61,20 +62,22 @@ pub async fn health_checker(
 
         if ratio >= 0.5 && !in_bad_status {
             in_bad_status = true;
+
             let report = (url.clone(), ReportStatus::Unhealthy);
             let _ = report_sender.send(report).await;
 
-            // let message = format!("{},{:?}", url, ReportStatus::Unhealthy);
-            // let _ = ctx.call("publish", &["spo2", &message]);
+            let message = format!("{},{:?}", url, ReportStatus::Unhealthy);
+            let _ = event_sender.send(message);
         }
 
         if ratio == 0.0 && in_bad_status {
             in_bad_status = false;
+
             let report = (url.clone(), ReportStatus::Healthy);
             let _ = report_sender.send(report).await;
 
-            // let message = format!("{},{:?}", url, ReportStatus::Healthy);
-            // let _ = ctx.call("publish", &["spo2", &message]);
+            let message = format!("{},{:?}", url, ReportStatus::Healthy);
+            let _ = event_sender.send(message);
         }
 
         if (in_bad_status || !status.is_good() || ratio >= 0.5) && ratio != 1.0 {
@@ -84,6 +87,6 @@ pub async fn health_checker(
         }
     }
 
-    // let message = format!("{},{}", url, "Removed");
-    // let _ = ctx.call("publish", &["spo2", &message]);
+    let message = format!("{},{}", url, "Removed");
+    let _ = event_sender.send(message);
 }

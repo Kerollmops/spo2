@@ -2,7 +2,7 @@ mod health_checker;
 mod response;
 mod routes;
 
-use std::{env, io, str};
+use std::{env, io, str, thread};
 
 use futures::channel::mpsc::{self, Sender};
 use futures::executor::ThreadPool;
@@ -23,6 +23,7 @@ pub enum ReportStatus {
 pub struct State {
     thread_pool: ThreadPool,
     notifier_sender: Sender<(Url, ReportStatus)>,
+    event_sender: ws::Sender,
     database: sled::Db,
 }
 
@@ -49,6 +50,16 @@ fn main() -> Result<(), io::Error> {
         }
     });
 
+    // initialize the websocket listener
+    let builder = ws::Builder::new();
+    let ws = builder.build(|_| |_| Ok(())).unwrap();
+    let event_sender = ws.broadcaster();
+
+    // run the websocket listener
+    let _ = thread::spawn(|| {
+        ws.listen("127.0.0.1:8001").expect("websocket listen error")
+    });
+
     // run health checking for every url saved
     for result in database.iter() {
         let key = match result {
@@ -61,13 +72,14 @@ fn main() -> Result<(), io::Error> {
 
         let notifier_sender = notifier_sender.clone();
         let database = database.clone();
+        let event_sender = event_sender.clone();
 
         thread_pool.spawn_ok(async {
-            health_checker(url, notifier_sender, database).await
+            health_checker(url, notifier_sender, event_sender, database).await
         });
     }
 
-    let state = State { thread_pool, notifier_sender, database };
+    let state = State { thread_pool, notifier_sender, event_sender, database };
     let mut app = tide::App::with_state(state);
 
     app.at("/:url")
@@ -78,6 +90,6 @@ fn main() -> Result<(), io::Error> {
 
     let listen_addr = env::args().nth(1).unwrap_or("127.0.0.1:8000".into());
 
-    // start listening for clients now
+    // start listening to clients now
     app.run(listen_addr)
 }

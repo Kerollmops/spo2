@@ -24,14 +24,16 @@ pub async fn update_url(mut cx: Context<State>) -> Result<Json, WithStatus<Strin
     let pool = &cx.state().thread_pool;
     let database = cx.state().database.clone();
     let notifier_sender = cx.state().notifier_sender.clone();
+    let event_sender = cx.state().event_sender.clone();
 
     match database.insert(url.as_str(), value.as_slice()) {
-        Ok(_) => {
+        Ok(None) => {
             pool.spawn_ok(async {
-                health_checker(url, notifier_sender, database).await
+                health_checker(url, notifier_sender, event_sender, database).await
             });
             Ok(Json(value))
         },
+        Ok(Some(_)) => Ok(Json(value)),
         Err(e) => Err(into_internal_error(e)),
     }
 }
@@ -41,6 +43,10 @@ pub async fn read_url(cx: Context<State>) -> Result<Json, WithStatus<String>> {
     let url = Url::parse(&url).map_err(into_bad_request)?;
 
     let database = &cx.state().database;
+    let event_sender = &cx.state().event_sender;
+
+    let message = format!("{} Read", url);
+    event_sender.send(message).unwrap();
 
     match database.get(url.as_str()) {
         Ok(Some(value)) => Ok(Json(value.to_vec())),
@@ -54,12 +60,10 @@ pub async fn delete_url(cx: Context<State>) -> Result<Json, WithStatus<String>> 
     let url = Url::parse(&url).map_err(into_bad_request)?;
 
     let database = &cx.state().database;
+    let event_sender = &cx.state().event_sender;
 
     match database.remove(url.as_str()) {
-        Ok(Some(value)) => {
-            // TODO send websocket event
-            Ok(Json(value.to_vec()))
-        },
+        Ok(Some(value)) => Ok(Json(value.to_vec())),
         Ok(None) => Err(not_found()),
         Err(e) => Err(into_internal_error(e)),
     }
