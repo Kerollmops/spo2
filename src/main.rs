@@ -15,6 +15,7 @@ use self::routes::{update_url, read_url, delete_url, get_all_urls};
 const HTTP_LISTEN_ADDR: &str = "HTTP_LISTEN_ADDR";
 const WS_LISTEN_ADDR: &str = "WS_LISTEN_ADDR";
 const SLACK_HOOK_URL: &str = "SLACK_HOOK_URL";
+const DATABASE_PATH: &str = "DATABASE_PATH";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum ReportStatus {
@@ -30,10 +31,6 @@ pub struct State {
 }
 
 fn main() -> Result<(), io::Error> {
-    let thread_pool = ThreadPool::new().unwrap();
-    let (notifier_sender, receiver) = mpsc::channel(100);
-    let database = sled::Db::open("spo2.db").unwrap();
-
     let ws_listen_addr = match env::var(WS_LISTEN_ADDR) {
         Ok(addr) => addr,
         Err(e) => {
@@ -49,6 +46,18 @@ fn main() -> Result<(), io::Error> {
             String::from("127.0.0.1:8000")
         },
     };
+
+    let database_path = match env::var(DATABASE_PATH) {
+        Ok(addr) => addr,
+        Err(e) => {
+            eprintln!("{}: {}", DATABASE_PATH, e);
+            String::from("spo2.db")
+        },
+    };
+
+    let thread_pool = ThreadPool::new().unwrap();
+    let (notifier_sender, receiver) = mpsc::channel(100);
+    let database = sled::Db::open(database_path).unwrap();
 
     // initialize the notifier sender
     thread_pool.spawn_ok(async move {
