@@ -1,6 +1,7 @@
 mod health_checker;
 mod response;
 mod routes;
+mod url_value;
 
 use std::{env, io, str, thread};
 
@@ -11,21 +12,16 @@ use url::Url;
 
 use self::health_checker::health_checker;
 use self::routes::{update_url, read_url, delete_url, get_all_urls};
+use self::url_value::Status;
 
 const HTTP_LISTEN_ADDR: &str = "HTTP_LISTEN_ADDR";
 const WS_LISTEN_ADDR: &str = "WS_LISTEN_ADDR";
 const SLACK_HOOK_URL: &str = "SLACK_HOOK_URL";
 const DATABASE_PATH: &str = "DATABASE_PATH";
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub enum ReportStatus {
-    Unhealthy,
-    Healthy,
-}
-
 pub struct State {
     thread_pool: ThreadPool,
-    notifier_sender: Sender<(Url, ReportStatus)>,
+    notifier_sender: Sender<(Url, Status)>,
     event_sender: ws::Sender,
     database: sled::Db,
 }
