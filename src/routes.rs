@@ -15,23 +15,41 @@ pub async fn update_url(mut cx: Context<State>) -> Result<Json, WithStatus<Strin
     let url = cx.param("url").map(urldecode::decode).unwrap();
     let url = Url::parse(&url).map_err(into_bad_request)?;
 
-    let body =  cx.body_bytes().await.map_err(into_bad_request)?;
-    let body = if body.is_empty() { None } else { Some(body) };
-
-    let user_data = match body {
-        None => Value::Null,
-        Some(body) => serde_json::from_slice(&body).map_err(into_bad_request)?,
+    let body = cx.body_bytes().await.map_err(into_bad_request)?;
+    let user_data = if body.is_empty() {
+        Value::Null
+    } else {
+        serde_json::from_slice(&body).map_err(into_bad_request)?
     };
 
-    let mut value = UrlValue { url: None, status: Healthy, reason: String::new(), data: user_data };
-    let value_bytes = serde_json::to_vec(&value).map_err(into_internal_error)?;
+    let mut value = UrlValue {
+        url: None,
+        status: Healthy,
+        reason: String::new(),
+        data: user_data.clone(),
+    };
+    let mut value_bytes = serde_json::to_vec(&value).map_err(into_internal_error)?;
 
     let pool = &cx.state().thread_pool;
     let database = cx.state().database.clone();
     let notifier_sender = cx.state().notifier_sender.clone();
     let event_sender = cx.state().event_sender.clone();
 
-    match database.insert(url.as_str(), value_bytes.as_slice()) {
+    // update this value but do not erase
+    // the last status written by the health checker
+    let result = database.fetch_and_update(url.as_str(), |old| {
+        match old {
+            Some(old) => {
+                value = serde_json::from_slice(old).unwrap();
+                value.data = user_data.clone();
+                value_bytes = serde_json::to_vec(&value).unwrap();
+                Some(value_bytes.clone())
+            },
+            None => Some(value_bytes.clone()),
+        }
+    });
+
+    match result {
         Ok(None) => {
             // send the initial healthy message when an url is added
             value.url = Some(url.to_string());
