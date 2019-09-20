@@ -109,13 +109,13 @@ fn main() -> Result<(), io::Error> {
     let state = State { thread_pool, notifier_sender, event_sender, database };
     let mut app = tide::App::with_state(state);
 
-    app.at("/:url")
+    app.at("/")
         .post(update_url)
         .get(read_url)
         .put(update_url)
         .delete(delete_url);
 
-    app.at("/")
+    app.at("/all")
         .get(get_all_urls);
 
     // start listening to clients now

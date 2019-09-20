@@ -31,7 +31,7 @@ cargo run --release
 ### Add or Update a new URL to health check
 
 ```bash
-curl -i -X PUT 'http://127.0.0.1:8000/http%3A%2F%2Flocalhost%2Fhealth' -d '"your custom json data"'
+curl -i -X PUT 'http://127.0.0.1:8000/?url=http%3A%2F%2Flocalhost%2Fhealth' -d '"your custom json data"'
 
 # Note that 'http%3A%2F%2Flocalhost%2Fhealth' is the url to health check
 # but it is url encoded and correspond to 'http://localhost/health'
@@ -43,7 +43,7 @@ curl -i -X PUT 'http://127.0.0.1:8000/http%3A%2F%2Flocalhost%2Fhealth' -d '"your
 ### Remove an health checked URL
 
 ```bash
-curl -i -X DELETE 'http://127.0.0.1:8000/http%3A%2F%2Flocalhost%2Fhealth'
+curl -i -X DELETE 'http://127.0.0.1:8000/?url=http%3A%2F%2Flocalhost%2Fhealth'
 
 # Calling this function will remove the URL from the health check pool
 # and return you the custom json data you associated to it
@@ -52,7 +52,7 @@ curl -i -X DELETE 'http://127.0.0.1:8000/http%3A%2F%2Flocalhost%2Fhealth'
 ### Get an health checked URL data
 
 ```bash
-curl -i -X GET 'http://127.0.0.1:8000/http%3A%2F%2Flocalhost%2Fhealth'
+curl -i -X GET 'http://127.0.0.1:8000/?url=http%3A%2F%2Flocalhost%2Fhealth'
 
 # Will return the associated data of an already health checked URL
 ```
@@ -60,7 +60,7 @@ curl -i -X GET 'http://127.0.0.1:8000/http%3A%2F%2Flocalhost%2Fhealth'
 ### Get all the health checked URLs
 
 ```bash
-curl -i -X GET 'http://127.0.0.1:8000/'
+curl -i -X GET 'http://127.0.0.1:8000/all'
 
 # Will return the list of all the health checked URLs
 # with the data associated with them
