@@ -21,6 +21,8 @@ const WS_LISTEN_ADDR: &str = "WS_LISTEN_ADDR";
 const SLACK_HOOK_URL: &str = "SLACK_HOOK_URL";
 const DATABASE_PATH: &str = "DATABASE_PATH";
 
+const HTML_CONTENT: &str = include_str!("../public/index.html");
+
 pub struct State {
     thread_pool: ThreadPool,
     notifier_sender: Sender<(Url, Status)>,
@@ -125,6 +127,14 @@ fn main() -> Result<(), io::Error> {
 
     app.at("/all")
         .get(get_all_urls);
+
+    app.at("/dashboard")
+        .get(|_| async move {
+            tide::http::Response::builder()
+                .header(tide::http::header::CONTENT_TYPE, "text/html; charset=utf-8")
+                .status(tide::http::StatusCode::OK)
+                .body(HTML_CONTENT).unwrap()
+        });
 
     // start listening to clients now
     app.run(http_listen_addr)
