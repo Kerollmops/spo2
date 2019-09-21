@@ -2,7 +2,7 @@
 <html lang="fr">
 <head>
   <meta charset="utf-8">
-  <title>Titre de la page</title>
+  <title>SpO₂ - Dashboard</title>
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.10.2/css/all.min.css">
   <script src="https://cdnjs.cloudflare.com/ajax/libs/handlebars.js/4.2.0/handlebars.min.js"></script>
   <script
@@ -25,8 +25,13 @@
       </div>
     {{else}}
       <div class="placeholder">
-        <h1>No Content</h1>
-        <h2>Please add a machine</h2>
+        {{#if network}}
+          <h1>No Content</h1>
+          <h3>Please add a machine</h3>
+        {{else}}
+          <h1>No Network</h1>
+          <h3>Please check your internet connection</h3>
+        {{/if}}
       </div>
     {{/each}}
   </script>
@@ -57,6 +62,7 @@
 
     var context = {
       "entities": [],
+      "network": false
     }
 
     $(document).ready(function() {
@@ -72,6 +78,7 @@
 
       ws.onopen = function (event) {
         console.log(`On Open; New event ${event}`)
+        context.network = true;
       }
 
       ws.onmessage = function (event) {
@@ -92,6 +99,9 @@
 
       ws.onclose = function(event) {
         console.log("WebSocket is closed now.");
+        context.entities = [];
+        context.network = false;
+        update_html();
       };
     });
 
@@ -188,7 +198,8 @@
       justify-content: center;
       align-content: center;
       text-align: center;
-
+      width: 100%;
+      align-items: center;
     }
 
     .add-button {
