@@ -13,6 +13,17 @@ use crate::State;
 use crate::url_value::UrlValue;
 use crate::url_value::Status::{Healthy, Removed};
 
+fn is_valid_url(url: &Url) -> bool {
+    if url.cannot_be_a_base() {
+        return false
+    }
+
+    match url.scheme() {
+        "http" | "https" => true,
+        _                => false,
+    }
+}
+
 #[derive(Deserialize)]
 struct QueryParams {
     url: String,
@@ -24,6 +35,10 @@ pub async fn update_url(mut cx: Context<State>) -> Result<Json, WithStatus<Strin
         Err(_) => return Err(into_bad_request("Invalid query parameters")),
     };
     let url = Url::parse(&qp.url).map_err(into_bad_request)?;
+
+    if !is_valid_url(&url) {
+        return Err(into_bad_request("Invalid url, must be an http/s url"))
+    }
 
     let body = cx.body_bytes().await.map_err(into_bad_request)?;
     let user_data = if body.is_empty() {
