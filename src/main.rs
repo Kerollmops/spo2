@@ -8,6 +8,8 @@ use std::{env, io, str, thread};
 use futures::channel::mpsc::{self, Sender};
 use futures::executor::ThreadPool;
 use futures::stream::StreamExt;
+use tide::middleware::{CorsMiddleware, CorsOrigin};
+use tide::http::header::HeaderValue;
 use url::Url;
 
 use self::health_checker::health_checker;
@@ -108,6 +110,12 @@ fn main() -> Result<(), io::Error> {
 
     let state = State { thread_pool, notifier_sender, event_sender, database };
     let mut app = tide::App::with_state(state);
+
+    app.middleware(
+        CorsMiddleware::new()
+            .allow_origin(CorsOrigin::from("*"))
+            .allow_methods(HeaderValue::from_static("GET, POST, DELETE, OPTIONS")),
+    );
 
     app.at("/")
         .post(update_url)
