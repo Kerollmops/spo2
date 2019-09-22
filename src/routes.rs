@@ -26,15 +26,14 @@ fn is_valid_url(url: &Url) -> bool {
 
 #[derive(Deserialize)]
 struct QueryParams {
-    url: String,
+    url: Url,
 }
 
 pub async fn update_url(mut cx: Context<State>) -> Result<Json, WithStatus<String>> {
-    let qp: QueryParams = match cx.url_query() {
-        Ok(qp) => qp,
+    let url = match cx.url_query::<QueryParams>() {
+        Ok(qp) => qp.url,
         Err(_) => return Err(into_bad_request("Invalid query parameters")),
     };
-    let url = Url::parse(&qp.url).map_err(into_bad_request)?;
 
     if !is_valid_url(&url) {
         return Err(into_bad_request("Invalid url, must be an http/s url"))
@@ -93,11 +92,10 @@ pub async fn update_url(mut cx: Context<State>) -> Result<Json, WithStatus<Strin
 }
 
 pub async fn read_url(cx: Context<State>) -> Result<Json, WithStatus<String>> {
-    let qp: QueryParams = match cx.url_query() {
-        Ok(qp) => qp,
+    let url = match cx.url_query::<QueryParams>() {
+        Ok(qp) => qp.url,
         Err(_) => return Err(into_bad_request("Invalid query parameters")),
     };
-    let url = Url::parse(&qp.url).map_err(into_bad_request)?;
 
     let database = &cx.state().database;
     match database.get(url.as_str()) {
@@ -108,11 +106,10 @@ pub async fn read_url(cx: Context<State>) -> Result<Json, WithStatus<String>> {
 }
 
 pub async fn delete_url(cx: Context<State>) -> Result<Json, WithStatus<String>> {
-    let qp: QueryParams = match cx.url_query() {
-        Ok(qp) => qp,
+    let url = match cx.url_query::<QueryParams>() {
+        Ok(qp) => qp.url,
         Err(_) => return Err(into_bad_request("Invalid query parameters")),
     };
-    let url = Url::parse(&qp.url).map_err(into_bad_request)?;
 
     let database = &cx.state().database;
     let event_sender = &cx.state().event_sender;
