@@ -3,6 +3,7 @@
 <head>
   <meta charset="utf-8">
   <title>SpO₂ - Dashboard</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.10.2/css/all.min.css">
   <script src="https://cdnjs.cloudflare.com/ajax/libs/handlebars.js/4.2.0/handlebars.min.js"></script>
   <script
@@ -65,20 +66,31 @@
       "network": false
     }
 
+    var source   = document.getElementById("entry-template").innerHTML;
+    var template = Handlebars.compile(source);
+
     $(document).ready(function() {
-
       get_all_entities();
+      start_websocket();
+    });
 
-      let ws_port = 81
+
+    function start_websocket() {
+      let is_ssl = window.location.protocol == "https:"
+
+      let ws_port = is_ssl ? 8888 : 8001;
       if (window.location.port != "") {
         ws_port = parseInt(window.location.port) + 1;
       }
 
-      var ws = new WebSocket("ws://" + window.location.hostname + ":" + ws_port, "protocolOne");
+      let ws_protocol = is_ssl ? "wss://" : "ws://";
+
+      var ws = new WebSocket(ws_protocol + window.location.hostname + ":" + ws_port, "protocolOne");
 
       ws.onopen = function (event) {
         console.log(`On Open; New event ${event}`)
         context.network = true;
+        update_html();
       }
 
       ws.onmessage = function (event) {
@@ -99,16 +111,14 @@
 
       ws.onclose = function(event) {
         console.log("WebSocket is closed now.");
-        context.entities = [];
         context.network = false;
         update_html();
+        start_websocket();
       };
-    });
+    }
 
     function update_html() {
       context.entities.sort(sort_by('status', true, function(a){return a.toUpperCase()}));
-      var source   = document.getElementById("entry-template").innerHTML;
-      var template = Handlebars.compile(source);
       var html = template(context);
       $("#app").html(html);
     }
