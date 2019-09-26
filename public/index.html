@@ -18,8 +18,7 @@
 
   <script id="entry-template" type="text/x-handlebars-template">
     {{#each entities}}
-      <div class="box">
-          {{#status status}}{{/status}}
+      <div class="box {{#status status}}{{/status}}">
           <h3 class="title">{{url}}</h3>
         </div>
       </div>
@@ -42,18 +41,7 @@
 
   <script>
     Handlebars.registerHelper('status', function(context) {
-      var context = context.toLowerCase() || "unknown";
-      if (context == "healthy" || context == "unhealthy") {
-        return new Handlebars.SafeString(`<div class="tooltip">
-            <span class="status ${context}"></span>
-            <span class="tooltiptext">${context}</span>
-          </div>`);
-      } else {
-        return new Handlebars.SafeString(`<div class="tooltip">
-          <span class="status unknown"></span>
-          <span class="tooltiptext">${context}</span>
-          </div>`);
-      }
+      return context.toLowerCase() || undefined;
     });
 
     Handlebars.registerHelper('json', function(context) {
@@ -266,6 +254,28 @@
       flex-direction: row;
       -moz-box-align: center;
       align-items: center;
+
+      border-left-color: rgb(255, 61, 87);
+      border-left-width: 3px;
+      border-left-style: solid;
+    }
+
+    .box.healthy {
+      border-left-color: rgb(69, 214, 181);
+      border-left-width: 3px;
+      border-left-style: solid;
+    }
+
+    .box.unhealthy {
+      border-left-color: rgb(255, 61, 87);
+      border-left-width: 3px;
+      border-left-style: solid;
+    }
+
+    .box.unreacheable {
+      border-left-color: rgba(0, 129, 255, 0.40);
+      border-left-width: 3px;
+      border-left-style: solid;
     }
 
     /* Large devices (laptops/desktops, 992px and up) */
@@ -338,38 +348,12 @@
     }
 
     .box:hover {
-      border-color: rgba(0, 129, 255, 0.40);
       box-shadow: rgba(212, 218, 231, 0.6) 0px 4px 12px 0px;
     }
 
     @-webkit-keyframes blinker {
       from {opacity: 1.0;}
       to {opacity: 0.4;}
-    }
-
-    .status{
-      text-decoration: blink;
-      -webkit-animation-name: blinker;
-      -webkit-animation-duration: 1s;
-      -webkit-animation-iteration-count:infinite;
-      -webkit-animation-timing-function:ease-in-out;
-      -webkit-animation-direction: alternate;
-      width: 10px;
-      height: 10px;
-      border-radius: 50%;
-      flex-grow: 1;
-    }
-
-    .healthy {
-      background-color: rgb(69, 214, 181);
-    }
-
-    .unhealthy {
-      background-color: rgba(255, 61, 87, 1.00);
-    }
-
-    .unknown {
-      background-color: rgba(134, 151, 168, 1.00)
     }
 
     .box .title {
@@ -391,47 +375,8 @@
     .box i:hover {
       color: rgba(255, 61, 87, 1.00);
     }
-
-    .tooltip {
-      position: relative;
-      display: flex;
-      margin-right: 16px;
-    }
-
-    .tooltip .tooltiptext {
-      visibility: hidden;
-      width: 120px;
-      background-color: #555;
-      color: #fff;
-      text-align: center;
-      padding: 10px 5px;
-      border-radius: 6px;
-      position: absolute;
-      z-index: 1;
-      bottom: 150%;
-      left: 0%;
-      margin-left: -60px;
-      opacity: 0;
-      transition: opacity 0.3s;
-    }
-
-    .tooltip .tooltiptext::after {
-      content: "";
-      position: absolute;
-      top: 100%;
-      left: 50%;
-      margin-left: -5px;
-      border-width: 5px;
-      border-style: solid;
-      border-color: #555 transparent transparent transparent;
-    }
-
-    .tooltip:hover .tooltiptext {
-      visibility: visible;
-      opacity: 1;
-    }
-
   </style>
+
 </head>
 <body >
   <div id="app" class="container">
