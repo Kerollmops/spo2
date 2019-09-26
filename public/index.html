@@ -1,0 +1,444 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <title>SpO₂ - Dashboard</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.10.2/css/all.min.css">
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/handlebars.js/4.2.0/handlebars.min.js"></script>
+  <script
+    src="https://code.jquery.com/jquery-3.4.1.min.js"
+    integrity="sha256-CSXorXvZcTkaix6Yvo6HppcZGetbYMGWSFlBw8HfCJo="
+    crossorigin="anonymous"></script>
+  </script>
+
+
+
+
+
+  <script id="entry-template" type="text/x-handlebars-template">
+    {{#each entities}}
+      <div class="box">
+          {{#status status}}{{/status}}
+          <h3 class="title">{{url}}</h3>
+        </div>
+      </div>
+    {{else}}
+      <div class="placeholder">
+        {{#if network}}
+          <h1>No Content</h1>
+          <h3>Please add a machine</h3>
+        {{else}}
+          <h1>No Network</h1>
+          <h3>Please check your internet connection</h3>
+        {{/if}}
+      </div>
+    {{/each}}
+  </script>
+
+
+
+
+
+  <script>
+    Handlebars.registerHelper('status', function(context) {
+      var context = context.toLowerCase() || "unknown";
+      if (context == "healthy" || context == "unhealthy") {
+        return new Handlebars.SafeString(`<div class="tooltip">
+            <span class="status ${context}"></span>
+            <span class="tooltiptext">${context}</span>
+          </div>`);
+      } else {
+        return new Handlebars.SafeString(`<div class="tooltip">
+          <span class="status unknown"></span>
+          <span class="tooltiptext">${context}</span>
+          </div>`);
+      }
+    });
+
+    Handlebars.registerHelper('json', function(context) {
+        return JSON.stringify(context).replace(/"/g, '&quot;');
+    });
+
+    var context = {
+      "entities": [],
+      "network": false
+    }
+
+    var source   = document.getElementById("entry-template").innerHTML;
+    var template = Handlebars.compile(source);
+
+    $(document).ready(function() {
+      get_all_entities();
+      start_websocket();
+    });
+
+
+    function start_websocket() {
+      let is_ssl = window.location.protocol == "https:"
+
+      let ws_port = is_ssl ? 8888 : 8001;
+      if (window.location.port != "") {
+        ws_port = parseInt(window.location.port) + 1;
+      }
+
+      let ws_protocol = is_ssl ? "wss://" : "ws://";
+
+      var ws = new WebSocket(ws_protocol + window.location.hostname + ":" + ws_port, "protocolOne");
+
+      ws.onopen = function (event) {
+        context.network = true;
+        update_html();
+      }
+
+      ws.onmessage = function (event) {
+        var new_entity = JSON.parse(event.data)
+        context.entities = context.entities.filter(entity => entity.url != new_entity.url);
+        var status = new_entity.status.toLowerCase();
+
+        if (status != "removed") {
+          context.entities.push(new_entity);
+        }
+
+        update_html();
+      }
+
+      ws.onerror = function(event) {
+        console.error("WebSocket error observed:", event);
+      };
+
+      ws.onclose = function(event) {
+        context.network = false;
+        update_html();
+        start_websocket();
+      };
+    }
+
+    function update_html() {
+      context.entities.sort(sort_by('status', true, function(a){return a.toUpperCase()}));
+      var html = template(context);
+      $("#app").html(html);
+    }
+
+    var sort_by = function(field, reverse, primer){
+     var key = primer ?
+      function(x) {return primer(x[field])} :
+      function(x) {return x[field]};
+
+     reverse = !reverse ? 1 : -1;
+
+      return function (a, b) {
+        return a = key(a), b = key(b), reverse * ((a > b) - (b > a));
+      }
+    }
+
+    function get_all_entities(url) {
+      jQuery.ajax({
+        url: window.location.origin + "/all",
+        type: "GET",
+      })
+      .done(function(data, textStatus, jqXHR) {
+          context.entities = data;
+      })
+      .fail(function(jqXHR, textStatus, errorThrown) {
+          console.log("HTTP Request Failed");
+      })
+      .always(function() {
+          update_html();
+      });
+    }
+
+    function remove_entity() {
+      var input_url = prompt("Please enter the url", "http://");
+      jQuery.ajax({
+        url: window.location.origin + "/?" + jQuery.param({
+            "url": input_url,
+        }),
+        type: "DELETE",
+      })
+      .done(function(data, textStatus, jqXHR) {
+        context.entities = context.entities.filter(entity => entity.url != input_url);
+        update_html();
+      })
+      .fail(function(jqXHR, textStatus, errorThrown) {
+          console.log("HTTP Request Failed");
+      });
+    }
+
+    function add_entity() {
+      var input_url = prompt("Please enter the url", "http://");
+      jQuery.ajax({
+        url: window.location.origin + "/?" + jQuery.param({
+            "url": input_url,
+        }),
+        type: "POST",
+      })
+      .done(function(data, textStatus, jqXHR) {
+        update_html();
+      })
+      .fail(function(jqXHR, textStatus, errorThrown) {
+        console.log("HTTP Request Failed");
+      });
+    }
+  </script>
+
+
+
+  <style>
+    body {
+      color: rgb(17, 28, 55);
+      font-family: "Asap", "System", sans-serif !important;
+      text-rendering: optimizelegibility;
+      -moz-osx-font-smoothing: grayscale;
+      background-color: #F8FAFB;
+      display: flex;
+      flex-direction: row;
+      align-content: center;
+      justify-content: center;
+    }
+
+    .placeholder {
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      align-content: center;
+      text-align: center;
+      width: 100%;
+      align-items: center;
+    }
+
+    .buttons {
+      display: flex;
+      flex-direction: column;
+      text-align: center;
+      position: fixed;
+      right: 50px;
+      top: 50px;
+    }
+
+    .button {
+      display: flex;
+      justify-content: center;
+      align-content: center;
+      width: 50px;
+      height: 50px;
+      border-radius: 100%;
+      box-shadow: rgba(179, 192, 206, 0.80) 0px 4px 20px 0px;
+      cursor: pointer;
+      margin-bottom: 20px;
+    }
+
+    .add-button {
+      background-color: #0081FF;
+    }
+
+    .remove-button {
+      background-color: rgba(255, 61, 87, 1.00);
+    }
+
+    .buttons i {
+      font-size: 25px;
+      align-self: center;
+      color: white;
+    }
+
+    .container {
+      width: 60%;
+      display: flex;
+      flex-direction: row;
+      flex-wrap: wrap;
+      justify-content: start;
+      align-content: start;
+    }
+
+    .box {
+      width: calc(20% - 24px);
+      box-sizing: border-box;
+      box-shadow: rgba(212, 218, 231, 0.4) 0px 1px 6px 0px;
+      background-color: #FFFFFF;
+      border-radius: 5px;
+      padding: 8px 20px;
+      margin: 10px 12px;
+
+      transition: box-shadow 200ms ease 0s, border-color 200ms ease 0s;
+      cursor: auto;
+      display: flex;
+      flex-direction: row;
+      -moz-box-align: center;
+      align-items: center;
+    }
+
+    /* Large devices (laptops/desktops, 992px and up) */
+    @media only screen and (min-width: 992px) {
+      .container {
+        width: 80%;
+      }
+      .box {
+        width: calc(50% - 24px);;
+      }
+    }
+
+    /* Extra large devices (large laptops and desktops, 1200px and up) */
+    @media only screen and (min-width: 1200px) {
+      .box {
+        width: calc(33% - 24px);
+      }
+    }
+
+    @media only screen and (min-width: 1900px) {
+      .container {
+        width: 80%;
+        max-width: 1800px;
+      }
+      .box {
+        width: calc(20% - 24px);
+      }
+    }
+
+    /* Small devices (portrait tablets and large phones, 600px and up) */
+    @media only screen and (max-width: 768px) {
+      .container {
+        width: 100%;
+        margin-bottom: 100px;
+      }
+      .box {
+        width: 100%;
+        max-width: 400px;
+        margin: 10px auto;
+      }
+      .buttons {
+        flex-direction: row;
+        right: 20px;
+        top: inherit;
+        bottom: 20px;
+      }
+      .button {
+        margin-right: 20px;
+      }
+    }
+
+    /* Medium devices (landscape tablets, 768px and up) */
+    @media only screen and (max-width: 992px) and (min-width: 768px) {
+      .container {
+        width: 100%;
+        margin-bottom: 100px;
+      }
+      .box {
+        width: calc(50% - 24px);
+      }
+      .buttons {
+        flex-direction: row;
+        right: 20px;
+        top: inherit;
+        bottom: 20px;
+      }
+      .button {
+        margin-right: 20px;
+      }
+    }
+
+    .box:hover {
+      border-color: rgba(0, 129, 255, 0.40);
+      box-shadow: rgba(212, 218, 231, 0.6) 0px 4px 12px 0px;
+    }
+
+    @-webkit-keyframes blinker {
+      from {opacity: 1.0;}
+      to {opacity: 0.4;}
+    }
+
+    .status{
+      text-decoration: blink;
+      -webkit-animation-name: blinker;
+      -webkit-animation-duration: 1s;
+      -webkit-animation-iteration-count:infinite;
+      -webkit-animation-timing-function:ease-in-out;
+      -webkit-animation-direction: alternate;
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      flex-grow: 1;
+    }
+
+    .healthy {
+      background-color: rgb(69, 214, 181);
+    }
+
+    .unhealthy {
+      background-color: rgba(255, 61, 87, 1.00);
+    }
+
+    .unknown {
+      background-color: rgba(134, 151, 168, 1.00)
+    }
+
+    .box .title {
+      flex-grow: 10;
+      color: rgb(17, 28, 55);
+      font-size: 16px;
+      font-weight: normal;
+      white-space: nowrap;
+      overflow: hidden;
+      display: block;
+      text-overflow: ellipsis;
+    }
+
+    .box i {
+      flex-grow: 1;
+      color: rgb(212, 218, 231);
+    }
+
+    .box i:hover {
+      color: rgba(255, 61, 87, 1.00);
+    }
+
+    .tooltip {
+      position: relative;
+      display: flex;
+      margin-right: 16px;
+    }
+
+    .tooltip .tooltiptext {
+      visibility: hidden;
+      width: 120px;
+      background-color: #555;
+      color: #fff;
+      text-align: center;
+      padding: 10px 5px;
+      border-radius: 6px;
+      position: absolute;
+      z-index: 1;
+      bottom: 150%;
+      left: 0%;
+      margin-left: -60px;
+      opacity: 0;
+      transition: opacity 0.3s;
+    }
+
+    .tooltip .tooltiptext::after {
+      content: "";
+      position: absolute;
+      top: 100%;
+      left: 50%;
+      margin-left: -5px;
+      border-width: 5px;
+      border-style: solid;
+      border-color: #555 transparent transparent transparent;
+    }
+
+    .tooltip:hover .tooltiptext {
+      visibility: visible;
+      opacity: 1;
+    }
+
+  </style>
+</head>
+<body >
+  <div id="app" class="container">
+  </div>
+  <div class="buttons">
+    <a class="button add-button" onclick="add_entity()"><i class="fas fa-plus"></i></a>
+    <a class="button remove-button" onclick="remove_entity()"><i class="fas fa-trash"></i></a>
+  </div>
+</body>
+</html>
