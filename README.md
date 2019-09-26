@@ -4,6 +4,10 @@ SpO₂ is oxygen saturation and is used in medical person monitoring.
 This project uses [sled](https://github.com/spacejam/sled) to permanently save the health checked URLs.
 It provides a websocket API that returns the changing status of the health checked URLs.
 
+SpO₂ doesn't support SSL out of the box, if you need [you can setup an Nginx server as we do][1].
+
+[1]: /enable-ssl.md
+
 ## Usage
 
 You must have installed Rust on your computer.
