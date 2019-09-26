@@ -1,3 +1,4 @@
+mod either_response;
 mod health_checker;
 mod response;
 mod routes;
@@ -8,10 +9,13 @@ use std::{env, io, str, thread};
 use futures::channel::mpsc::{self, Sender};
 use futures::executor::ThreadPool;
 use futures::stream::StreamExt;
-use tide::middleware::{CorsMiddleware, CorsOrigin};
+use subslice::SubsliceExt;
+use tide::Context;
 use tide::http::header::HeaderValue;
+use tide::middleware::{CorsMiddleware, CorsOrigin};
 use url::Url;
 
+use self::either_response::Either;
 use self::health_checker::health_checker;
 use self::routes::{update_url, read_url, delete_url, get_all_urls};
 use self::url_value::Status;
@@ -120,21 +124,22 @@ fn main() -> Result<(), io::Error> {
     );
 
     app.at("/")
+        .get(|cx: Context<State>| async move {
+            if cx.headers().get("Accept").and_then(|v| v.as_bytes().find(b"text/html")).is_some() {
+                Either::Left(tide::http::Response::builder()
+                    .header(tide::http::header::CONTENT_TYPE, "text/html; charset=utf-8")
+                    .status(tide::http::StatusCode::OK)
+                    .body(HTML_CONTENT).unwrap())
+            } else {
+                Either::Right(read_url(cx).await)
+            }
+        })
         .post(update_url)
-        .get(read_url)
         .put(update_url)
         .delete(delete_url);
 
     app.at("/all")
         .get(get_all_urls);
-
-    app.at("/dashboard")
-        .get(|_| async move {
-            tide::http::Response::builder()
-                .header(tide::http::header::CONTENT_TYPE, "text/html; charset=utf-8")
-                .status(tide::http::StatusCode::OK)
-                .body(HTML_CONTENT).unwrap()
-        });
 
     // start listening to clients now
     app.run(http_listen_addr)
