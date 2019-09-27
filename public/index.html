@@ -19,7 +19,7 @@
   <script id="entry-template" type="text/x-handlebars-template">
     {{#each entities}}
       <div class="box {{#status status}}{{/status}}">
-          <h3 class="title">{{url}}</h3>
+          <h3 class="title">{{#HighlightUrl url}}{{/HighlightUrl}}</h3>
         </div>
       </div>
     {{else}}
@@ -42,6 +42,12 @@
   <script>
     Handlebars.registerHelper('status', function(context) {
       return context.toLowerCase() || undefined;
+    });
+
+    Handlebars.registerHelper('HighlightUrl', function(context) {
+      let highlighted = context.replace(/^(https?:\/\/(?:www\.)?)([^:\/]+)(.*)/i, '$1<em>$2</em>$3');
+      console.log(context, highlighted);
+      return highlighted;
     });
 
     Handlebars.registerHelper('json', function(context) {
@@ -358,7 +364,8 @@
 
     .box .title {
       flex-grow: 10;
-      color: rgb(17, 28, 55);
+      color: rgba(17, 28, 55, 0.3);
+      transition: 0.3s;
       font-size: 16px;
       font-weight: normal;
       white-space: nowrap;
@@ -367,13 +374,14 @@
       text-overflow: ellipsis;
     }
 
-    .box i {
-      flex-grow: 1;
-      color: rgb(212, 218, 231);
+    .box:hover .title {
+      color: rgb(17, 28, 55);
+      transition: 0.3s;
     }
 
-    .box i:hover {
-      color: rgba(255, 61, 87, 1.00);
+    .box em {
+      color: rgb(17, 28, 55);
+      font-style: inherit;
     }
   </style>
 
