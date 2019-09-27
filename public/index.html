@@ -19,7 +19,7 @@
   <script id="entry-template" type="text/x-handlebars-template">
     {{#each entities}}
       <div class="box {{#status status}}{{/status}}">
-          <h3 class="title">{{#HighlightUrl url}}{{/HighlightUrl}}</h3>
+          <h3 class="title" title="{{url}}">{{#HighlightUrl url}}{{/HighlightUrl}}</h3>
         </div>
       </div>
     {{else}}
