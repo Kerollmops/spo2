@@ -12,7 +12,7 @@ SpO₂ doesn't support SSL out of the box, if you need [you can setup an Nginx s
 
 ## Usage
 
-You must have installed Rust on your computer.
+You must have [installed Rust](https://rustup.rs/) on your computer first.
 
 ```bash
 # to try it in debug mode
@@ -36,38 +36,35 @@ cargo run --release
 
 ### Add or Update a new URL to health check
 
+Calling this route is "kind of" idenpotent, it means that it will not run another health checker on this URL but the custom json data will be updated.
+
 ```bash
 curl -i -X PUT 'http://127.0.0.1:8000/?url=http%3A%2F%2Flocalhost%2Fhealth' -d '"your custom json data"'
 
 # Note that 'http%3A%2F%2Flocalhost%2Fhealth' is the url to health check
 # but it is url encoded and correspond to 'http://localhost/health'
-
-# Calling this function is "kind of" idenpotent, it means that it will not run another
-# health checker on this URL but the custom json data will be updated
 ```
 
 ### Remove an health checked URL
 
+Calling this route will remove the URL from the health check pool and return you the custom json data associated with it.
+
 ```bash
 curl -i -X DELETE 'http://127.0.0.1:8000/?url=http%3A%2F%2Flocalhost%2Fhealth'
-
-# Calling this function will remove the URL from the health check pool
-# and return you the custom json data you associated to it
 ```
 
 ### Get an health checked URL data
 
+Will return the associated data of an already health checked URL.
+
 ```bash
 curl -i -X GET 'http://127.0.0.1:8000/?url=http%3A%2F%2Flocalhost%2Fhealth'
-
-# Will return the associated data of an already health checked URL
 ```
 
 ### Get all the health checked URLs
 
+Will return the list of all the health checked URLs aloang with the data associated with them.
+
 ```bash
 curl -i -X GET 'http://127.0.0.1:8000/all'
-
-# Will return the list of all the health checked URLs
-# with the data associated with them
 ```
