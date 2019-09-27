@@ -8,6 +8,8 @@ SpO₂ doesn't support SSL out of the box, if you need [you can setup an Nginx s
 
 [1]: /enable-ssl.md
 
+![SpO2 dashboard screenshot](/misc/screenshot.png)
+
 ## Usage
 
 You must have installed Rust on your computer.
