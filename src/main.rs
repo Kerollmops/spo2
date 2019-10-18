@@ -84,8 +84,9 @@ fn main() -> Result<(), io::Error> {
             };
 
             let body = serde_json::json!({ "text": body });
-            let request = surf::post(&slack_hook_url).body_json(&body).unwrap();
-            if let Err(e) = request.recv_string().await {
+
+            let client = reqwest::Client::new();
+            if let Err(e) = client.post(slack_hook_url.as_str()).json(&body).send().await {
                 eprintln!("{}", e);
             }
         }

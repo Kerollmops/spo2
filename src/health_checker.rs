@@ -2,7 +2,7 @@ use std::time::{Duration, Instant};
 
 use futures::channel::mpsc::Sender;
 use futures::sink::SinkExt;
-use futures_timer::{Delay, TryFutureExt};
+use futures_timer::Delay;
 use url::Url;
 
 use crate::url_value::{Report, UrlValue};
@@ -25,7 +25,8 @@ pub async fn health_checker(
     let mut in_bad_state_since = None;
 
     loop {
-        let (status, reason) = match surf::get(&url).timeout(TIMEOUT).await {
+        let client = reqwest::ClientBuilder::new().timeout(TIMEOUT).build().unwrap();
+        let (status, reason) = match client.get(url.as_str()).send().await {
             Ok(ref resp) if resp.status().is_success() => {
                 (Healthy, resp.status().to_string())
             },
@@ -86,7 +87,7 @@ pub async fn health_checker(
             let _ = Delay::new(NORMAL_PING).await;
         }
 
-        if let Some((state, since)) = in_bad_state_since {
+        if let Some((status, since)) = in_bad_state_since {
             if since.elapsed() > STILL_UNHEALTHY_TIMEOUT {
                 let report = Report { url: url.clone(), status, still: true, reason };
                 let _ = report_sender.send(report).await;
