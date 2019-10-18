@@ -15,6 +15,7 @@ impl Status {
     }
 }
 
+#[derive(Debug)]
 pub struct Report {
     pub url: Url,
     pub status: Status,

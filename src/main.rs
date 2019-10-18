@@ -4,15 +4,18 @@ mod response;
 mod routes;
 mod url_value;
 
+use std::fmt::Write;
+use std::time::Duration;
 use std::{env, io, str, thread};
 
 use futures::channel::mpsc::{self, Sender};
-use futures::executor::ThreadPool;
 use futures::stream::StreamExt;
 use subslice::SubsliceExt;
 use tide::Context;
 use tide::http::header::HeaderValue;
 use tide::middleware::{CorsMiddleware, CorsOrigin};
+use tokio::runtime::Runtime;
+use tokio_batch::ChunksTimeoutStreamExt;
 use url::Url;
 
 use self::either_response::Either;
@@ -28,7 +31,7 @@ const DATABASE_PATH: &str = "DATABASE_PATH";
 const HTML_CONTENT: &str = include_str!("../public/index.html");
 
 pub struct State {
-    thread_pool: ThreadPool,
+    runtime: Runtime,
     notifier_sender: Sender<Report>,
     event_sender: ws::Sender,
     database: sled::Db,
@@ -59,12 +62,12 @@ fn main() -> Result<(), io::Error> {
         },
     };
 
-    let thread_pool = ThreadPool::new().unwrap();
+    let runtime = Runtime::new().unwrap();
     let (notifier_sender, receiver) = mpsc::channel(100);
     let database = sled::Db::open(database_path).unwrap();
 
     // initialize the notifier sender
-    thread_pool.spawn_ok(async move {
+    runtime.spawn(async move {
         let slack_hook_url = match env::var(SLACK_HOOK_URL) {
             Ok(url) => url,
             Err(e) => {
@@ -73,18 +76,23 @@ fn main() -> Result<(), io::Error> {
             }
         };
 
-        let mut receiver = receiver;
-        while let Some(Report { url, status, still, reason }) = receiver.next().await {
-            let body = if still {
-                format!("{} is still {:?} ({})", url, status, reason);
-            } else if status.is_good() {
-                format!("{} is now {:?} 🎉", url, status);
-            } else {
-                format!("{} reported {:?} ({})", url, status, reason);
-            };
+        let mut receiver = receiver.chunks_timeout(40, Duration::new(10, 0));
+        while let Some(reports) = receiver.next().await {
+
+            println!("reports: {:?}", reports);
+
+            let mut body = String::new();
+            for Report { url, status, still, reason } in reports {
+                let _ = if still {
+                    writeln!(&mut body, "{} is still {:?}", url, status)
+                } else if status.is_good() {
+                    writeln!(&mut body, "{} is now {:?} 🎉", url, status)
+                } else {
+                    writeln!(&mut body, "{} reported {:?} ({})", url, status, reason)
+                };
+            }
 
             let body = serde_json::json!({ "text": body });
-
             let client = reqwest::Client::new();
             if let Err(e) = client.post(slack_hook_url.as_str()).json(&body).send().await {
                 eprintln!("{}", e);
@@ -117,12 +125,12 @@ fn main() -> Result<(), io::Error> {
         let database = database.clone();
         let event_sender = event_sender.clone();
 
-        thread_pool.spawn_ok(async {
+        runtime.spawn(async {
             health_checker(url, notifier_sender, event_sender, database).await
         });
     }
 
-    let state = State { thread_pool, notifier_sender, event_sender, database };
+    let state = State { runtime, notifier_sender, event_sender, database };
     let mut app = tide::App::with_state(state);
 
     app.middleware(

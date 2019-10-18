@@ -54,7 +54,7 @@ pub async fn update_url(mut cx: Context<State>) -> Result<Json, WithStatus<Strin
     };
     let mut value_bytes = serde_json::to_vec(&value).map_err(into_internal_error)?;
 
-    let pool = &cx.state().thread_pool;
+    let pool = &cx.state().runtime;
     let database = cx.state().database.clone();
     let notifier_sender = cx.state().notifier_sender.clone();
     let event_sender = cx.state().event_sender.clone();
@@ -80,7 +80,7 @@ pub async fn update_url(mut cx: Context<State>) -> Result<Json, WithStatus<Strin
             let message = serde_json::to_string(&value).map_err(into_internal_error)?;
             let _ = event_sender.send(message);
 
-            pool.spawn_ok(async {
+            pool.spawn(async {
                 health_checker(url, notifier_sender, event_sender, database).await
             });
 
