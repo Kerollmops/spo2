@@ -5,23 +5,22 @@ use futures::sink::SinkExt;
 use futures_timer::{Delay, TryFutureExt};
 use url::Url;
 
-use crate::url_value::{Status, UrlValue};
+use crate::url_value::{Report, UrlValue};
 use crate::url_value::Status::{Healthy, Unhealthy, Unreacheable};
 
 const STILL_UNHEALTHY_TIMEOUT: Duration = Duration::from_secs(15 * 60); // 15 minutes
-const TIMEOUT:     Duration = Duration::from_secs(5);
-const NORMAL_PING: Duration = Duration::from_secs(3);
-const FAST_PING:   Duration = Duration::from_millis(800);
+const TIMEOUT:                 Duration = Duration::from_secs(5);
+const NORMAL_PING:             Duration = Duration::from_secs(3);
+const FAST_PING:               Duration = Duration::from_millis(800);
 
 type ArrayDeque10<T> = arraydeque::ArrayDeque<[T; 10], arraydeque::Wrapping>;
 
 pub async fn health_checker(
     url: Url,
-    mut report_sender: Sender<(Url, Status)>,
+    mut report_sender: Sender<Report>,
     event_sender: ws::Sender,
     database: sled::Db,
-)
-{
+) {
     let mut last_status = ArrayDeque10::new();
     let mut in_bad_state_since = None;
 
@@ -62,9 +61,9 @@ pub async fn health_checker(
         let ratio = bads / cap;
 
         if ratio >= 0.5 && in_bad_state_since.is_none() {
-            in_bad_state_since = Some(Instant::now());
+            in_bad_state_since = Some((status, Instant::now()));
 
-            let report = (url.clone(), Status::Unhealthy);
+            let report = Report { url: url.clone(), status, still: false, reason: reason.clone() };
             let _ = report_sender.send(report).await;
 
             let message = serde_json::to_string(&value).unwrap();
@@ -74,7 +73,7 @@ pub async fn health_checker(
         if ratio == 0.0 && in_bad_state_since.is_some() {
             in_bad_state_since = None;
 
-            let report = (url.clone(), Status::Healthy);
+            let report = Report { url: url.clone(), status, still: false, reason: reason.clone() };
             let _ = report_sender.send(report).await;
 
             let message = serde_json::to_string(&value).unwrap();
@@ -87,15 +86,15 @@ pub async fn health_checker(
             let _ = Delay::new(NORMAL_PING).await;
         }
 
-        if let Some(since) = in_bad_state_since {
+        if let Some((state, since)) = in_bad_state_since {
             if since.elapsed() > STILL_UNHEALTHY_TIMEOUT {
-                let report = (url.clone(), Status::Unhealthy);
+                let report = Report { url: url.clone(), status, still: true, reason };
                 let _ = report_sender.send(report).await;
 
                 let message = serde_json::to_string(&value).unwrap();
                 let _ = event_sender.send(message);
 
-                in_bad_state_since = Some(Instant::now());
+                in_bad_state_since = Some((status, Instant::now()));
             }
         }
     }

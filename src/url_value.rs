@@ -1,4 +1,5 @@
 use serde::{Serialize, Deserialize};
+use url::Url;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Status {
@@ -12,6 +13,13 @@ impl Status {
     pub fn is_good(&self) -> bool {
         *self == Status::Healthy
     }
+}
+
+pub struct Report {
+    pub url: Url,
+    pub status: Status,
+    pub still: bool,
+    pub reason: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

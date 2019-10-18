@@ -18,7 +18,7 @@ use url::Url;
 use self::either_response::Either;
 use self::health_checker::health_checker;
 use self::routes::{update_url, read_url, delete_url, get_all_urls};
-use self::url_value::Status;
+use self::url_value::Report;
 
 const HTTP_LISTEN_ADDR: &str = "HTTP_LISTEN_ADDR";
 const WS_LISTEN_ADDR: &str = "WS_LISTEN_ADDR";
@@ -29,7 +29,7 @@ const HTML_CONTENT: &str = include_str!("../public/index.html");
 
 pub struct State {
     thread_pool: ThreadPool,
-    notifier_sender: Sender<(Url, Status)>,
+    notifier_sender: Sender<Report>,
     event_sender: ws::Sender,
     database: sled::Db,
 }
@@ -52,7 +52,7 @@ fn main() -> Result<(), io::Error> {
     };
 
     let database_path = match env::var(DATABASE_PATH) {
-        Ok(addr) => addr,
+        Ok(path) => path,
         Err(e) => {
             eprintln!("{}: {}", DATABASE_PATH, e);
             String::from("spo2.db")
@@ -74,8 +74,15 @@ fn main() -> Result<(), io::Error> {
         };
 
         let mut receiver = receiver;
-        while let Some((url, status)) = receiver.next().await {
-            let body = format!("{} reported {:?}", url, status);
+        while let Some(Report { url, status, still, reason }) = receiver.next().await {
+            let body = if still {
+                format!("{} is still {:?} ({})", url, status, reason);
+            } else if status.is_good() {
+                format!("{} is now {:?} 🎉", url, status);
+            } else {
+                format!("{} reported {:?} ({})", url, status, reason);
+            };
+
             let body = serde_json::json!({ "text": body });
             let request = surf::post(&slack_hook_url).body_json(&body).unwrap();
             if let Err(e) = request.recv_string().await {
