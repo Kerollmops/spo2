@@ -9,13 +9,14 @@ use std::time::Duration;
 use std::{env, io, str, thread};
 
 use futures::channel::mpsc::{self, Sender};
+use futures::executor::ThreadPool;
 use futures::stream::StreamExt;
+use futures_stream_batch::ChunksTimeoutStreamExt;
+use isahc::prelude::*;
 use subslice::SubsliceExt;
 use tide::Context;
 use tide::http::header::HeaderValue;
 use tide::middleware::{CorsMiddleware, CorsOrigin};
-use tokio::runtime::Runtime;
-use tokio_batch::ChunksTimeoutStreamExt;
 use url::Url;
 
 use self::either_response::Either;
@@ -31,7 +32,7 @@ const DATABASE_PATH: &str = "DATABASE_PATH";
 const HTML_CONTENT: &str = include_str!("../public/index.html");
 
 pub struct State {
-    runtime: Runtime,
+    runtime: ThreadPool,
     notifier_sender: Sender<Report>,
     event_sender: ws::Sender,
     database: sled::Db,
@@ -62,12 +63,12 @@ fn main() -> Result<(), io::Error> {
         },
     };
 
-    let runtime = Runtime::new().unwrap();
+    let runtime = ThreadPool::new().unwrap();
     let (notifier_sender, receiver) = mpsc::channel(100);
     let database = sled::Db::open(database_path).unwrap();
 
     // initialize the notifier sender
-    runtime.spawn(async move {
+    runtime.spawn_ok(async move {
         let slack_hook_url = match env::var(SLACK_HOOK_URL) {
             Ok(url) => url,
             Err(e) => {
@@ -78,8 +79,6 @@ fn main() -> Result<(), io::Error> {
 
         let mut receiver = receiver.chunks_timeout(40, Duration::new(10, 0));
         while let Some(reports) = receiver.next().await {
-
-            println!("reports: {:?}", reports);
 
             let mut body = String::new();
             for Report { url, status, still, reason } in reports {
@@ -93,8 +92,13 @@ fn main() -> Result<(), io::Error> {
             }
 
             let body = serde_json::json!({ "text": body });
-            let client = reqwest::Client::new();
-            if let Err(e) = client.post(slack_hook_url.as_str()).json(&body).send().await {
+
+            let request = Request::post(&slack_hook_url)
+                .header("content-type", "application/json")
+                .body(serde_json::to_vec(&body).unwrap())
+                .unwrap();
+
+            if let Err(e) = isahc::send_async(request).await {
                 eprintln!("{}", e);
             }
         }
@@ -125,7 +129,7 @@ fn main() -> Result<(), io::Error> {
         let database = database.clone();
         let event_sender = event_sender.clone();
 
-        runtime.spawn(async {
+        runtime.spawn_ok(async {
             health_checker(url, notifier_sender, event_sender, database).await
         });
     }
