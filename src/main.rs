@@ -2,6 +2,7 @@ mod health_checker;
 mod routes;
 mod url_value;
 
+use std::cmp::Reverse;
 use std::fmt::Write;
 use std::str::FromStr;
 use std::time::Duration;
@@ -74,9 +75,18 @@ fn main() -> Result<(), io::Error> {
         };
 
         let mut receiver = receiver.chunks_timeout(40, Duration::new(10, 0));
-        while let Some(reports) = receiver.next().await {
+        while let Some(mut reports) = receiver.next().await {
+            // remove subsequent urls status for the same url
+            reports.sort_by_key(|r: &Report| Reverse(r.url.clone()));
+            reports.dedup_by_key(|r| r.url.clone());
 
             let mut body = String::new();
+
+            // if reports contain newly detected bad status
+            if reports.iter().any(|r| !r.still && !r.status.is_good()) {
+                let _ = writeln!(&mut body, "<!channel>");
+            }
+
             for Report { url, status, still, reason } in reports {
                 let _ = if still {
                     writeln!(&mut body, "{} is still {:?}", url, status)
@@ -88,6 +98,8 @@ fn main() -> Result<(), io::Error> {
             }
 
             let body = serde_json::json!({ "text": body });
+
+            println!("{}", serde_json::to_string_pretty(&body).unwrap());
 
             let request = Request::post(&slack_hook_url)
                 .header("content-type", "application/json")
