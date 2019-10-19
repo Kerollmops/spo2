@@ -9,7 +9,7 @@ use url::Url;
 use crate::url_value::{Report, UrlValue};
 use crate::url_value::Status::{Healthy, Unhealthy, Unreacheable};
 
-const STILL_UNHEALTHY_TIMEOUT: Duration = Duration::from_secs(15 * 60); // 15 minutes
+const STILL_UNHEALTHY_TIMEOUT: Duration = Duration::from_secs(15); // 15 minutes
 const TIMEOUT:                 Duration = Duration::from_secs(5);
 const NORMAL_PING:             Duration = Duration::from_secs(3);
 const FAST_PING:               Duration = Duration::from_millis(800);
@@ -65,7 +65,7 @@ pub async fn health_checker(
         if ratio >= 0.5 && in_bad_state_since.is_none() {
             in_bad_state_since = Some((status, Instant::now()));
 
-            let report = Report { url: url.clone(), status, still: false, reason: reason.clone() };
+            let report = Report { url: url.clone(), status, since: None, reason: reason.clone() };
             let _ = report_sender.send(report).await;
 
             let message = serde_json::to_string(&value).unwrap();
@@ -75,7 +75,7 @@ pub async fn health_checker(
         if ratio == 0.0 && in_bad_state_since.is_some() {
             in_bad_state_since = None;
 
-            let report = Report { url: url.clone(), status, still: false, reason: reason.clone() };
+            let report = Report { url: url.clone(), status, since: None, reason: reason.clone() };
             let _ = report_sender.send(report).await;
 
             let message = serde_json::to_string(&value).unwrap();
@@ -90,7 +90,7 @@ pub async fn health_checker(
 
         if let Some((status, since)) = in_bad_state_since {
             if since.elapsed() > STILL_UNHEALTHY_TIMEOUT {
-                let report = Report { url: url.clone(), status, still: true, reason };
+                let report = Report { url: url.clone(), status, since: Some(value.since), reason };
                 let _ = report_sender.send(report).await;
 
                 let message = serde_json::to_string(&value).unwrap();

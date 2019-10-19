@@ -1,6 +1,7 @@
 use std::io::{Cursor, Empty};
-use std::{str, fmt};
 use std::str::FromStr;
+use std::time::Instant;
+use std::{str, fmt};
 
 use url::Url;
 use serde_json::Value;
@@ -76,6 +77,7 @@ pub fn update_url(url: Url, mut request: Request, state: &State) -> Result<(), B
         url: None,
         status: Healthy,
         reason: String::new(),
+        since: Instant::now(),
         data: user_data.clone(),
     };
     let mut value_bytes = match serde_json::to_vec(&value) {

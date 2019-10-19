@@ -77,9 +77,9 @@ fn main() -> Result<(), io::Error> {
         while let Some(reports) = receiver.next().await {
 
             let mut body = String::new();
-            for Report { url, status, still, reason } in reports {
-                let _ = if still {
-                    writeln!(&mut body, "{} is still {:?}", url, status)
+            for Report { url, status, since, reason } in reports {
+                let _ = if let Some(since) = since {
+                    writeln!(&mut body, "{} is still {:?} since {:.0?}", url, status, since.elapsed())
                 } else if status.is_good() {
                     writeln!(&mut body, "{} is now {:?} 🎉", url, status)
                 } else {
@@ -88,6 +88,8 @@ fn main() -> Result<(), io::Error> {
             }
 
             let body = serde_json::json!({ "text": body });
+
+            println!("{}", serde_json::to_string_pretty(&body).unwrap());
 
             let request = Request::post(&slack_hook_url)
                 .header("content-type", "application/json")
