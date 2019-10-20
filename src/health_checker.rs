@@ -3,7 +3,6 @@ use std::time::{Duration, Instant};
 use futures::channel::mpsc::Sender;
 use futures::sink::SinkExt;
 use futures_timer::Delay;
-use isahc::prelude::*;
 use url::Url;
 
 use crate::url_value::{Report, UrlValue};
@@ -26,8 +25,8 @@ pub async fn health_checker(
     let mut in_bad_state_since = None;
 
     loop {
-        let request = Request::get(url.as_str()).timeout(TIMEOUT).body(()).unwrap();
-        let (status, reason) = match isahc::send_async(request).await {
+        let client = reqwest::ClientBuilder::new().timeout(TIMEOUT).build().unwrap();
+        let (status, reason) = match client.get(url.as_str()).send().await {
             Ok(ref resp) if resp.status().is_success() => {
                 (Healthy, resp.status().to_string())
             },

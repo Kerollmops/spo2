@@ -80,7 +80,7 @@ pub async fn update_url(mut cx: Context<State>) -> Result<Json, WithStatus<Strin
             let message = serde_json::to_string(&value).map_err(into_internal_error)?;
             let _ = event_sender.send(message);
 
-            pool.spawn_ok(async {
+            pool.spawn(async {
                 health_checker(url, notifier_sender, event_sender, database).await
             });
 
