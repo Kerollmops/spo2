@@ -83,8 +83,6 @@ fn main() -> Result<(), io::Error> {
             reports.sort_by_key(|r: &Report| Reverse(r.url.clone()));
             reports.dedup_by_key(|r| r.url.clone());
 
-            println!("reports: {:?}", reports);
-
             let mut body = String::new();
 
             // if reports contain newly detected bad status
