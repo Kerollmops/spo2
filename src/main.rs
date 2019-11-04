@@ -102,9 +102,6 @@ fn main() -> Result<(), io::Error> {
             }
 
             let body = serde_json::json!({ "text": body });
-
-            println!("{}", serde_json::to_string_pretty(&body).unwrap());
-
             let request = Request::post(&slack_hook_url)
                 .header("content-type", "application/json")
                 .body(serde_json::to_vec(&body).unwrap())
