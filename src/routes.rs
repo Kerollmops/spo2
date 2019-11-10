@@ -1,17 +1,36 @@
-use std::str;
+use std::io::{Cursor, Empty};
+use std::{str, fmt};
+use std::str::FromStr;
 
-use tide::Context;
-use tide::querystring::ContextExt;
-use tide::response::WithStatus;
 use url::Url;
-use serde::Deserialize;
 use serde_json::Value;
+use tiny_http::{Request, Response, Header};
 
 use crate::health_checker::health_checker;
-use crate::response::{Json, into_internal_error, into_bad_request, not_found};
 use crate::State;
 use crate::url_value::UrlValue;
 use crate::url_value::Status::{Healthy, Removed};
+
+type BoxError = Box<dyn std::error::Error>;
+
+pub fn into_json(data: Vec<u8>) -> Response<Cursor<Vec<u8>>> {
+    Response::from_data(data)
+        .with_header(Header::from_str("Content-Type: application/json").unwrap())
+}
+
+pub fn into_internal_error<E: fmt::Display>(e: E) -> Response<Cursor<Vec<u8>>> {
+    Response::from_string(e.to_string())
+        .with_status_code(500)
+}
+
+pub fn into_bad_request<E: fmt::Display>(e: E) -> Response<Cursor<Vec<u8>>> {
+    Response::from_string(e.to_string())
+        .with_status_code(400)
+}
+
+pub fn not_found() -> Response<Empty> {
+    Response::empty(404)
+}
 
 fn is_valid_url(url: &Url) -> bool {
     if url.cannot_be_a_base() {
@@ -24,26 +43,33 @@ fn is_valid_url(url: &Url) -> bool {
     }
 }
 
-#[derive(Deserialize)]
-struct QueryParams {
-    url: Url,
-}
-
-pub async fn update_url(mut cx: Context<State>) -> Result<Json, WithStatus<String>> {
-    let url = match cx.url_query::<QueryParams>() {
-        Ok(qp) => qp.url,
-        Err(_) => return Err(into_bad_request("Invalid query parameters")),
+pub fn update_url(url: Url, mut request: Request, state: &State) -> Result<(), BoxError> {
+    let url = match url.query_pairs().find(|(k, _)| k == "url") {
+        Some((_, url)) => match Url::parse(&url) {
+            Ok(url) => url,
+            Err(e) => return request.respond(into_bad_request(e)).map_err(Into::into),
+        },
+        None => {
+            return request.respond(into_bad_request("missing url parameter")).map_err(Into::into)
+        },
     };
 
     if !is_valid_url(&url) {
-        return Err(into_bad_request("Invalid url, must be an http/s url"))
+        return request.respond(into_bad_request("Invalid url, must be an http/s url")).map_err(Into::into)
     }
 
-    let body = cx.body_bytes().await.map_err(into_bad_request)?;
+    let mut body = String::new();
+    if let Err(e) = request.as_reader().read_to_string(&mut body) {
+        return request.respond(into_bad_request(e)).map_err(Into::into)
+    }
+
     let user_data = if body.is_empty() {
         Value::Null
     } else {
-        serde_json::from_slice(&body).map_err(into_bad_request)?
+        match serde_json::from_slice(body.as_bytes()) {
+            Ok(value) => value,
+            Err(e) => return request.respond(into_bad_request(e)).map_err(Into::into),
+        }
     };
 
     let mut value = UrlValue {
@@ -52,12 +78,15 @@ pub async fn update_url(mut cx: Context<State>) -> Result<Json, WithStatus<Strin
         reason: String::new(),
         data: user_data.clone(),
     };
-    let mut value_bytes = serde_json::to_vec(&value).map_err(into_internal_error)?;
+    let mut value_bytes = match serde_json::to_vec(&value) {
+        Ok(value_bytes) => value_bytes,
+        Err(e) => return request.respond(into_internal_error(e)).map_err(Into::into),
+    };
 
-    let pool = &cx.state().runtime;
-    let database = cx.state().database.clone();
-    let notifier_sender = cx.state().notifier_sender.clone();
-    let event_sender = cx.state().event_sender.clone();
+    let pool = &state.runtime;
+    let database = state.database.clone();
+    let notifier_sender = state.notifier_sender.clone();
+    let event_sender = state.event_sender.clone();
 
     // update this value but do not erase
     // the last status written by the health checker
@@ -77,78 +106,110 @@ pub async fn update_url(mut cx: Context<State>) -> Result<Json, WithStatus<Strin
         Ok(None) => {
             // send the initial healthy message when an url is added
             value.url = Some(url.to_string());
-            let message = serde_json::to_string(&value).map_err(into_internal_error)?;
+            let message = match serde_json::to_string(&value) {
+                Ok(message) => message,
+                Err(e) => return request.respond(into_internal_error(e)).map_err(Into::into),
+            };
             let _ = event_sender.send(message);
 
             pool.spawn_ok(async {
                 health_checker(url, notifier_sender, event_sender, database).await
             });
 
-            Ok(Json(value_bytes))
+            request.respond(into_json(value_bytes)).map_err(Into::into)
         },
-        Ok(Some(_)) => Ok(Json(value_bytes)),
-        Err(e) => Err(into_internal_error(e)),
+        Ok(Some(_)) => request.respond(into_json(value_bytes)).map_err(Into::into),
+        Err(e) => Err(e.into()),
     }
 }
 
-pub async fn read_url(cx: Context<State>) -> Result<Json, WithStatus<String>> {
-    let url = match cx.url_query::<QueryParams>() {
-        Ok(qp) => qp.url,
-        Err(_) => return Err(into_bad_request("Invalid query parameters")),
+pub fn read_url(url: Url, request: Request, state: &State) -> Result<(), BoxError> {
+    let url = match url.query_pairs().find(|(k, _)| k == "url") {
+        Some((_, url)) => match Url::parse(&url) {
+            Ok(url) => url,
+            Err(e) => return request.respond(into_bad_request(e)).map_err(Into::into),
+        },
+        None => {
+            return request.respond(into_bad_request("missing url parameter")).map_err(Into::into)
+        },
     };
 
-    let database = &cx.state().database;
+    let database = &state.database;
     match database.get(url.as_str()) {
-        Ok(Some(value)) => Ok(Json(value.to_vec())),
-        Ok(None) => Err(not_found()),
-        Err(e) => Err(into_internal_error(e)),
+        Ok(Some(value)) => request.respond(into_json(value.to_vec())).map_err(Into::into),
+        Ok(None) => request.respond(not_found()).map_err(Into::into),
+        Err(e) => request.respond(into_internal_error(e)).map_err(Into::into),
     }
 }
 
-pub async fn delete_url(cx: Context<State>) -> Result<Json, WithStatus<String>> {
-    let url = match cx.url_query::<QueryParams>() {
-        Ok(qp) => qp.url,
-        Err(_) => return Err(into_bad_request("Invalid query parameters")),
+pub fn delete_url(url: Url, request: Request, state: &State) -> Result<(), BoxError> {
+    let url = match url.query_pairs().find(|(k, _)| k == "url") {
+        Some((_, url)) => match Url::parse(&url) {
+            Ok(url) => url,
+            Err(e) => return request.respond(into_bad_request(e)).map_err(Into::into),
+        },
+        None => {
+            return request.respond(into_bad_request("missing url parameter")).map_err(Into::into)
+        },
     };
 
-    let database = &cx.state().database;
-    let event_sender = &cx.state().event_sender;
+    let database = &state.database;
+    let event_sender = &state.event_sender;
 
     match database.remove(url.as_str()) {
         Ok(Some(value_bytes)) => {
-            let mut value: UrlValue = serde_json::from_slice(&value_bytes).map_err(into_internal_error)?;
+            let mut value: UrlValue = match serde_json::from_slice(&value_bytes) {
+                Ok(value) => value,
+                Err(e) => return request.respond(into_internal_error(e)).map_err(Into::into),
+            };
             value.status = Removed;
             value.url = Some(url.to_string());
 
-            let message = serde_json::to_string(&value).map_err(into_internal_error)?;
+            let message = match serde_json::to_string(&value) {
+                Ok(message) => message,
+                Err(e) => return request.respond(into_internal_error(e)).map_err(Into::into),
+            };
             let _ = event_sender.send(message);
 
-            Ok(Json(value_bytes.to_vec()))
+            request.respond(into_json(value_bytes.to_vec())).map_err(Into::into)
         },
-        Ok(None) => Err(not_found()),
-        Err(e) => Err(into_internal_error(e)),
+        Ok(None) => request.respond(not_found()).map_err(Into::into),
+        Err(e) => request.respond(into_internal_error(e)).map_err(Into::into),
     }
 }
 
-pub async fn get_all_urls(cx: Context<State>) -> Result<Json, WithStatus<String>> {
-    let database = &cx.state().database;
+pub fn get_all_urls(_url: Url, request: Request, state: &State) -> Result<(), BoxError> {
+    let database = &state.database;
 
     let mut urls = Vec::new();
     for result in database.iter() {
         let (key, value) = match result {
             Ok(pair) => pair,
-            Err(e) => return Err(into_internal_error(e)),
+            Err(e) => return request.respond(into_internal_error(e)).map_err(Into::into),
         };
 
-        let string = str::from_utf8(&key).map_err(into_internal_error)?;
-        let url = Url::parse(&string).map_err(into_internal_error)?;
+        let string = match str::from_utf8(&key) {
+            Ok(string) => string,
+            Err(e) => return request.respond(into_internal_error(e)).map_err(Into::into),
+        };
+        let url = match Url::parse(&string) {
+            Ok(url) => url,
+            Err(e) => return request.respond(into_internal_error(e)).map_err(Into::into),
+        };
 
-        let mut value: UrlValue = serde_json::from_slice(&value).map_err(into_internal_error)?;
+        let mut value: UrlValue = match serde_json::from_slice(&value) {
+            Ok(value) => value,
+            Err(e) => return request.respond(into_internal_error(e)).map_err(Into::into),
+        };
         value.url = Some(url.to_string());
 
         urls.push(value);
     }
 
-    let urls = serde_json::to_vec(&urls).map_err(into_internal_error)?;
-    Ok(Json(urls))
+    let urls = match serde_json::to_vec(&urls) {
+        Ok(urls) => urls,
+        Err(e) => return request.respond(into_internal_error(e)).map_err(Into::into),
+    };
+
+    request.respond(into_json(urls)).map_err(Into::into)
 }
