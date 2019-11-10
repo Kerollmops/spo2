@@ -1,25 +1,22 @@
-mod either_response;
 mod health_checker;
-mod response;
 mod routes;
 mod url_value;
 
 use std::cmp::Reverse;
 use std::fmt::Write;
+use std::str::FromStr;
 use std::time::Duration;
 use std::{env, io, str, thread};
 
 use futures::channel::mpsc::{self, Sender};
+use futures::executor::ThreadPool;
 use futures::stream::StreamExt;
+use futures_stream_batch::ChunksTimeoutStreamExt;
+use isahc::prelude::*;
 use subslice::SubsliceExt;
-use tide::Context;
-use tide::http::header::HeaderValue;
-use tide::middleware::{CorsMiddleware, CorsOrigin};
-use tokio::runtime::Runtime;
-use tokio_batch::ChunksTimeoutStreamExt;
+use tiny_http::{Response, Method, Header};
 use url::Url;
 
-use self::either_response::Either;
 use self::health_checker::health_checker;
 use self::routes::{update_url, read_url, delete_url, get_all_urls};
 use self::url_value::Report;
@@ -32,7 +29,7 @@ const DATABASE_PATH: &str = "DATABASE_PATH";
 const HTML_CONTENT: &str = include_str!("../public/index.html");
 
 pub struct State {
-    runtime: Runtime,
+    runtime: ThreadPool,
     notifier_sender: Sender<Report>,
     event_sender: ws::Sender,
     database: sled::Db,
@@ -63,12 +60,12 @@ fn main() -> Result<(), io::Error> {
         },
     };
 
-    let runtime = Runtime::new().unwrap();
+    let runtime = ThreadPool::new().unwrap();
     let (notifier_sender, receiver) = mpsc::channel(100);
     let database = sled::Db::open(database_path).unwrap();
 
     // initialize the notifier sender
-    runtime.spawn(async move {
+    runtime.spawn_ok(async move {
         let slack_hook_url = match env::var(SLACK_HOOK_URL) {
             Ok(url) => url,
             Err(e) => {
@@ -101,8 +98,12 @@ fn main() -> Result<(), io::Error> {
             }
 
             let body = serde_json::json!({ "text": body });
-            let client = reqwest::Client::new();
-            if let Err(e) = client.post(slack_hook_url.as_str()).json(&body).send().await {
+            let request = Request::post(&slack_hook_url)
+                .header("content-type", "application/json")
+                .body(serde_json::to_vec(&body).unwrap())
+                .unwrap();
+
+            if let Err(e) = isahc::send_async(request).await {
                 eprintln!("{}", e);
             }
         }
@@ -133,38 +134,61 @@ fn main() -> Result<(), io::Error> {
         let database = database.clone();
         let event_sender = event_sender.clone();
 
-        runtime.spawn(async {
+        runtime.spawn_ok(async {
             health_checker(url, notifier_sender, event_sender, database).await
         });
     }
 
     let state = State { runtime, notifier_sender, event_sender, database };
-    let mut app = tide::App::with_state(state);
 
-    app.middleware(
-        CorsMiddleware::new()
-            .allow_origin(CorsOrigin::from("*"))
-            .allow_methods(HeaderValue::from_static("GET, POST, DELETE, OPTIONS")),
-    );
+    let server = tiny_http::Server::http(http_listen_addr).unwrap();
+    let http_listen_addr = server.server_addr();
+    eprintln!("Listening on {}", http_listen_addr);
 
-    app.at("/")
-        .get(|cx: Context<State>| async move {
-            if cx.headers().get("Accept").and_then(|v| v.as_bytes().find(b"text/html")).is_some() {
-                Either::Left(tide::http::Response::builder()
-                    .header(tide::http::header::CONTENT_TYPE, "text/html; charset=utf-8")
-                    .status(tide::http::StatusCode::OK)
-                    .body(HTML_CONTENT).unwrap())
-            } else {
-                Either::Right(read_url(cx).await)
+    let base_url = format!("http://{}", http_listen_addr);
+    let base_url = Url::parse(&base_url).unwrap();
+
+    loop {
+        let request = match server.recv() {
+            Ok(request) => request,
+            Err(e) => { eprintln!("{}", e); continue }
+        };
+
+        let method = request.method();
+        let url = match base_url.join(request.url()) {
+            Ok(url) => url,
+            Err(error) => {
+                let message = error.to_string();
+                let response = Response::from_string(message).with_status_code(400);
+                if let Err(e) = request.respond(response) { eprintln!("{}", e) }
+                continue;
             }
-        })
-        .post(update_url)
-        .put(update_url)
-        .delete(delete_url);
+        };
 
-    app.at("/all")
-        .get(get_all_urls);
+        fn accept_text_html(header: &Header) -> bool {
+            header.field.equiv("accept") && header.value.as_bytes().find(b"text/html").is_some()
+        }
 
-    // start listening to clients now
-    app.run(http_listen_addr)
+        let result = match (url.path(), method) {
+            ("/all", &Method::Get) => get_all_urls(url, request, &state),
+            ("/", &Method::Get) => {
+                if request.headers().iter().any(accept_text_html) {
+                    let response = Response::from_string(HTML_CONTENT)
+                        .with_header(Header::from_str("Content-Type: text/html; charset=utf-8").unwrap())
+                        .with_status_code(200);
+                    request.respond(response).map_err(Into::into)
+                } else {
+                    read_url(url, request, &state)
+                }
+            },
+            ("/", &Method::Post) => update_url(url, request, &state),
+            ("/", &Method::Put) => update_url(url, request, &state),
+            ("/", &Method::Delete) => delete_url(url, request, &state),
+            (_path, _method) => request.respond(Response::empty(404)).map_err(Into::into),
+        };
+
+        if let Err(e) = result {
+            eprintln!("{}", e);
+        }
+    }
 }
