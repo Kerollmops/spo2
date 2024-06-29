@@ -1,5 +1,8 @@
 # SpO₂
-SpO₂ is oxygen saturation and is used in medical person monitoring.
+
+SpO₂ is a monitor for any program using the HTTP protocol. For more detail and background, see the [blog post announcing the release of the project](https://blog.meilisearch.com/spo2-the-little-dynamic-monitoring-tool/). 
+
+(In medicine, SpO₂ refers to oxygen saturation levels in blood and is used as a measure of a person's health. O₂ is the scientific designation for an oxygen atom.) 
 
 This project uses [sled](https://github.com/spacejam/sled) to permanently save the health checked URLs.
 It provides a websocket API that returns the changing status of the health checked URLs.
