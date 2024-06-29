@@ -1,6 +1,6 @@
 # SpO₂
 
-SpO₂ is a monitor for Kubernetes pods. For more detail and background, see the [blog post announcing the release of the project](https://blog.meilisearch.com/spo2-the-little-dynamic-monitoring-tool/). 
+SpO₂ is a monitor for any program using the HTTP protocol. For more detail and background, see the [blog post announcing the release of the project](https://blog.meilisearch.com/spo2-the-little-dynamic-monitoring-tool/). 
 
 (In medicine, SpO₂ refers to oxygen saturation levels in blood and is used as a measure of a person's health. O₂ is the scientific designation for an oxygen atom.) 
 
